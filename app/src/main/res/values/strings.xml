@@ -1,0 +1,13 @@
+<resources>
+    <string name="app_name">Notify2Discord</string>
+    <string name="settings_title">Notify2Discord 設定</string>
+    <string name="webhook_label">Discord Webhook URL</string>
+    <string name="webhook_save">保存</string>
+    <string name="forwarding_toggle">通知の転送を有効にする</string>
+    <string name="open_notification_access">通知アクセス設定を開く</string>
+    <string name="test_send">テスト送信</string>
+    <string name="excluded_section">除外アプリ一覧</string>
+    <string name="webhook_empty_help">Webhook URL を入力してください</string>
+    <string name="webhook_invalid_help">URL 形式が正しくありません</string>
+    <string name="notification_access_help">通知アクセスを有効にしないと転送できません</string>
+</resources>
