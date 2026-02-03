@@ -36,3 +36,4 @@ Thumbs.db
 
 # Log Files
 *.log
+.claude/settings.local.json
