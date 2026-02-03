@@ -34,6 +34,9 @@ Thumbs.db
 *.ap_
 *.aab
 
+# Allow APK files in releases directory
+!releases/*.apk
+
 # Log Files
 *.log
 .claude/settings.local.json
