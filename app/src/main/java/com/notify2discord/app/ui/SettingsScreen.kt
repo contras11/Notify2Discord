@@ -32,7 +32,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.unit.dp
 import com.notify2discord.app.R
 import com.notify2discord.app.data.AppInfo
@@ -49,19 +48,20 @@ fun SettingsScreen(
     onTestSend: () -> Unit,
     onToggleExclude: (String, Boolean) -> Unit
 ) {
+    // TextFieldValue は Saveable に非対応なので、保存可能な String で保持する
     var webhookText by rememberSaveable(state.webhookUrl) {
-        mutableStateOf(TextFieldValue(state.webhookUrl))
+        mutableStateOf(state.webhookUrl)
     }
 
     LaunchedEffect(state.webhookUrl) {
-        if (webhookText.text != state.webhookUrl) {
-            webhookText = TextFieldValue(state.webhookUrl)
+        if (webhookText != state.webhookUrl) {
+            webhookText = state.webhookUrl
         }
     }
 
-    val isWebhookValid = remember(webhookText.text) {
-        webhookText.text.startsWith("https://discord.com/api/webhooks/") ||
-            webhookText.text.startsWith("https://discordapp.com/api/webhooks/")
+    val isWebhookValid = remember(webhookText) {
+        webhookText.startsWith("https://discord.com/api/webhooks/") ||
+            webhookText.startsWith("https://discordapp.com/api/webhooks/")
     }
 
     Scaffold(
@@ -89,10 +89,10 @@ fun SettingsScreen(
                 onValueChange = { webhookText = it },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text(stringResource(id = R.string.webhook_label)) },
-                isError = webhookText.text.isNotBlank() && !isWebhookValid
+                isError = webhookText.isNotBlank() && !isWebhookValid
             )
 
-            if (webhookText.text.isBlank()) {
+            if (webhookText.isBlank()) {
                 Text(
                     text = stringResource(id = R.string.webhook_empty_help),
                     style = MaterialTheme.typography.bodySmall
@@ -108,7 +108,7 @@ fun SettingsScreen(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                Button(onClick = { onSaveWebhook(webhookText.text) }) {
+                Button(onClick = { onSaveWebhook(webhookText) }) {
                     Text(text = stringResource(id = R.string.webhook_save))
                 }
                 Button(onClick = onTestSend, enabled = isWebhookValid) {
