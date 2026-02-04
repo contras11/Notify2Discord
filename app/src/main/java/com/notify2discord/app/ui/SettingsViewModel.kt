@@ -109,7 +109,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 if (launcherApps != null) {
                     for (profile in launcherApps.getProfiles()) {
                         for (activity in launcherApps.getActivityList(null, profile)) {
-                            val pkg = activity.getPackageName()
+                            val pkg = activity.getComponentName().packageName
                             if (!personalPackages.containsKey(pkg) && !workOnlyPackages.containsKey(pkg)) {
                                 workOnlyPackages[pkg] = "${activity.getLabel()} (仕事領域)"
                             }
