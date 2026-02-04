@@ -1,5 +1,8 @@
 package com.notify2discord.app.ui
 
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -8,11 +11,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -31,7 +36,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import com.notify2discord.app.data.NotificationRecord
 import java.text.SimpleDateFormat
@@ -42,7 +51,7 @@ private data class AppNotificationSummary(
     val packageName: String,
     val appName: String,
     val count: Int,
-    val latest: NotificationRecord   // 最新のレコード（プレビュー用）
+    val latest: NotificationRecord
 )
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -51,8 +60,7 @@ fun NotificationHistoryScreen(
     history: List<NotificationRecord>,
     onDeleteRecord: (Long) -> Unit,
     onClearAll: () -> Unit,
-    onClearByApp: (String) -> Unit,
-    onNavigateBack: () -> Unit
+    onClearByApp: (String) -> Unit
 ) {
     // null = アプリ一覧、非null = そのアプリの履歴詳細
     var selectedAppPackage by remember { mutableStateOf<String?>(null) }
@@ -63,6 +71,7 @@ fun NotificationHistoryScreen(
         val appName = appRecords.firstOrNull()?.appName ?: pkg
 
         AppDetailScreen(
+            packageName = pkg,
             appName = appName,
             records = appRecords,
             onDeleteRecord = onDeleteRecord,
@@ -73,8 +82,42 @@ fun NotificationHistoryScreen(
         AppListScreen(
             history = history,
             onClearAll = onClearAll,
-            onSelectApp = { selectedAppPackage = it },
-            onNavigateBack = onNavigateBack
+            onClearByApp = onClearByApp,
+            onSelectApp = { selectedAppPackage = it }
+        )
+    }
+}
+
+// アプリアイコン表示
+@Composable
+private fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val imageBitmap: ImageBitmap? = remember(packageName) {
+        try {
+            val drawable = context.packageManager.getApplicationIcon(packageName)
+            val size = drawable.intrinsicWidth.coerceIn(1, 512)
+            val bitmap = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
+            val canvas = Canvas(bitmap)
+            drawable.setBounds(0, 0, size, size)
+            drawable.draw(canvas)
+            bitmap.asImageBitmap()
+        } catch (_: Exception) {
+            null
+        }
+    }
+    if (imageBitmap != null) {
+        Image(
+            bitmap = imageBitmap,
+            contentDescription = null,
+            modifier = modifier,
+            contentScale = ContentScale.Fit
+        )
+    } else {
+        Icon(
+            Icons.Default.Notifications,
+            contentDescription = null,
+            modifier = modifier,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant
         )
     }
 }
@@ -86,10 +129,11 @@ fun NotificationHistoryScreen(
 private fun AppListScreen(
     history: List<NotificationRecord>,
     onClearAll: () -> Unit,
-    onSelectApp: (String) -> Unit,
-    onNavigateBack: () -> Unit
+    onClearByApp: (String) -> Unit,
+    onSelectApp: (String) -> Unit
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
+    var deleteConfirmApp by remember { mutableStateOf<AppNotificationSummary?>(null) }
 
     val dateFormat = remember { SimpleDateFormat("yyyy/MM/dd HH:mm") }
 
@@ -112,11 +156,6 @@ private fun AppListScreen(
         topBar = {
             TopAppBar(
                 title = { Text("通知履歴") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る")
-                    }
-                },
                 actions = {
                     if (summaries.isNotEmpty()) {
                         IconButton(onClick = { showClearConfirm = true }) {
@@ -152,19 +191,23 @@ private fun AppListScreen(
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(12.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                                .padding(horizontal = 8.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
+                            // アプリアイコン
+                            AppIcon(
+                                packageName = summary.packageName,
+                                modifier = Modifier.size(36.dp)
+                            )
+                            // アプリ名・プレビュー
                             Column(
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).padding(start = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 Text(
                                     text = summary.appName,
                                     style = MaterialTheme.typography.bodyMedium
                                 )
-                                // 最新通知のプレビュー（タイトルがなければテキスト）
                                 val preview = summary.latest.title.ifBlank { summary.latest.text }
                                 if (preview.isNotBlank()) {
                                     Text(
@@ -175,6 +218,7 @@ private fun AppListScreen(
                                     )
                                 }
                             }
+                            // バッジ・時刻
                             Column(
                                 horizontalAlignment = Alignment.End,
                                 verticalArrangement = Arrangement.spacedBy(4.dp)
@@ -186,7 +230,6 @@ private fun AppListScreen(
                                         }
                                     }
                                 ) {
-                                    // バッジの右に空白を確保するためのダミーBox
                                     Box(modifier = Modifier.padding(end = 8.dp))
                                 }
                                 Text(
@@ -195,11 +238,38 @@ private fun AppListScreen(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
+                            // アプリグループ削除
+                            IconButton(onClick = { deleteConfirmApp = summary }) {
+                                Icon(Icons.Default.Delete, "「${summary.appName}」の履歴を削除")
+                            }
                         }
                     }
                 }
             }
         }
+    }
+
+    // アプリグループ削除確認ダイアログ
+    if (deleteConfirmApp != null) {
+        val target = deleteConfirmApp!!
+        AlertDialog(
+            onDismissRequest = { deleteConfirmApp = null },
+            title = { Text("「${target.appName}」の履歴を削除するか？") },
+            text = { Text("${target.count}件の履歴を削除します。この操作は元に戻せません。") },
+            confirmButton = {
+                TextButton(onClick = {
+                    onClearByApp(target.packageName)
+                    deleteConfirmApp = null
+                }) {
+                    Text("削除")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { deleteConfirmApp = null }) {
+                    Text("キャンセル")
+                }
+            }
+        )
     }
 
     // 全削除確認ダイアログ
@@ -230,6 +300,7 @@ private fun AppListScreen(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppDetailScreen(
+    packageName: String,
     appName: String,
     records: List<NotificationRecord>,
     onDeleteRecord: (Long) -> Unit,
@@ -244,7 +315,15 @@ private fun AppDetailScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text(appName) },
+                title = {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        AppIcon(packageName = packageName, modifier = Modifier.size(28.dp))
+                        Text(appName)
+                    }
+                },
                 navigationIcon = {
                     IconButton(onClick = onNavigateBack) {
                         Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る")

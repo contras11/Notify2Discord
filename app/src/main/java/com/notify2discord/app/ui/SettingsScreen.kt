@@ -47,8 +47,6 @@ fun SettingsScreen(
     onToggleForwarding: (Boolean) -> Unit,
     onOpenNotificationAccess: () -> Unit,
     onTestSend: () -> Unit,
-    onNavigateToSelectedApps: () -> Unit,
-    onNavigateToHistory: () -> Unit,
     onRequestIgnoreBatteryOptimizations: () -> Unit,
     onSetThemeMode: (com.notify2discord.app.data.ThemeMode) -> Unit
 ) {
@@ -268,44 +266,6 @@ fun SettingsScreen(
                 }
             }
 
-            Divider()
-
-            // 転送アプリ・Webhook設定
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = stringResource(id = R.string.selected_apps_section),
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = stringResource(id = R.string.selected_apps_count, state.selectedPackages.size),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Button(onClick = onNavigateToSelectedApps) {
-                    Text("設定")
-                }
-            }
-
-            // 通知履歴
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = stringResource(id = R.string.notification_history_section),
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Button(onClick = onNavigateToHistory) {
-                    Text(text = stringResource(id = R.string.notification_history_button))
-                }
-            }
         }
     }
 }

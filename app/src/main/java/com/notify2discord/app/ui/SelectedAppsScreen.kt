@@ -4,10 +4,11 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.*
@@ -17,26 +18,62 @@ import androidx.compose.ui.unit.dp
 import com.notify2discord.app.data.AppInfo
 import com.notify2discord.app.data.SettingsState
 
+private enum class AppSortOrder {
+    NAME_ASC,
+    NAME_DESC,
+    SELECTED_FIRST,
+    WEBHOOK_FIRST
+}
+
+private fun sortLabel(order: AppSortOrder): String = when (order) {
+    AppSortOrder.NAME_ASC -> "アルファベット順 (A→Z)"
+    AppSortOrder.NAME_DESC -> "アルファベット逆順 (Z→A)"
+    AppSortOrder.SELECTED_FIRST -> "選択済みが先"
+    AppSortOrder.WEBHOOK_FIRST -> "個別Webhook設定済みが先"
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SelectedAppsScreen(
     state: SettingsState,
     apps: List<AppInfo>,
     onToggleSelected: (String, Boolean) -> Unit,
-    onSetAppWebhook: (String, String) -> Unit,
-    onNavigateBack: () -> Unit
+    onSetAppWebhook: (String, String) -> Unit
 ) {
     var selectedApp by remember { mutableStateOf<AppInfo?>(null) }
     var showWebhookDialog by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
+    var sortOrder by remember { mutableStateOf(AppSortOrder.NAME_ASC) }
+    var showSortMenu by remember { mutableStateOf(false) }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("転送アプリとWebhook設定") },
-                navigationIcon = {
-                    IconButton(onClick = onNavigateBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る")
+                actions = {
+                    Box {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.Default.Sort, "ソート")
+                        }
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false }
+                        ) {
+                            AppSortOrder.values().forEach { order ->
+                                DropdownMenuItem(
+                                    text = { Text(sortLabel(order)) },
+                                    onClick = {
+                                        sortOrder = order
+                                        showSortMenu = false
+                                    },
+                                    trailingIcon = {
+                                        if (sortOrder == order) {
+                                            Icon(Icons.Default.Check, null)
+                                        }
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             )
@@ -105,7 +142,7 @@ fun SelectedAppsScreen(
                 singleLine = true
             )
 
-            // アプリリスト
+            // 検索 → ソート の順に適用
             val filteredApps = remember(apps, searchQuery) {
                 apps.filter { app ->
                     searchQuery.isBlank() ||
@@ -114,11 +151,31 @@ fun SelectedAppsScreen(
                 }
             }
 
+            val sortedApps = remember(filteredApps, sortOrder, state.selectedPackages, state.appWebhooks) {
+                when (sortOrder) {
+                    AppSortOrder.NAME_ASC ->
+                        filteredApps.sortedBy { it.label.lowercase() }
+                    AppSortOrder.NAME_DESC ->
+                        filteredApps.sortedByDescending { it.label.lowercase() }
+                    AppSortOrder.SELECTED_FIRST ->
+                        filteredApps.sortedWith(
+                            compareByDescending<AppInfo> { state.selectedPackages.contains(it.packageName) }
+                                .thenBy { it.label.lowercase() }
+                        )
+                    AppSortOrder.WEBHOOK_FIRST ->
+                        filteredApps.sortedWith(
+                            compareByDescending<AppInfo> { state.appWebhooks.containsKey(it.packageName) }
+                                .thenBy { it.label.lowercase() }
+                        )
+                }
+            }
+
+            // アプリリスト
             LazyColumn(
                 contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                items(filteredApps, key = { it.packageName }) { app ->
+                items(sortedApps, key = { it.packageName }) { app ->
                     val selected = state.selectedPackages.contains(app.packageName)
                     val hasCustomWebhook = state.appWebhooks.containsKey(app.packageName)
 
