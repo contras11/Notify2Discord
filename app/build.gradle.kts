@@ -7,6 +7,15 @@ android {
     namespace = "com.notify2discord.app"
     compileSdk = 34
 
+    signingConfigs {
+        debug {
+            storeFile file("debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }
+    }
+
     defaultConfig {
         applicationId = "com.notify2discord.app"
         minSdk = 34
@@ -34,6 +43,12 @@ android {
 
     kotlinOptions {
         jvmTarget = "17"
+    }
+
+    buildTypes {
+        debug {
+            signingConfig = signingConfigs.debug
+        }
     }
 
     packaging {

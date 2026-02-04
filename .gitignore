@@ -20,6 +20,8 @@ output.json
 # Keystore files
 *.jks
 *.keystore
+# デバッグキーストアは署名安定化のためバージョン管理に含める
+!app/debug.keystore
 
 # External native build folder generated in Android Studio 2.2 and later
 .externalNativeBuild
