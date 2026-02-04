@@ -109,9 +109,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 if (launcherApps != null) {
                     for (profile in launcherApps.getProfiles()) {
                         for (activity in launcherApps.getActivityList(null, profile)) {
-                            val pkg = activity.packageName
+                            val pkg = activity.getPackageName()
                             if (!personalPackages.containsKey(pkg) && !workOnlyPackages.containsKey(pkg)) {
-                                workOnlyPackages[pkg] = "${activity.label} (仕事領域)"
+                                workOnlyPackages[pkg] = "${activity.getLabel()} (仕事領域)"
                             }
                         }
                     }

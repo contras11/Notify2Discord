@@ -101,7 +101,7 @@ class NotifyNotificationListenerService : NotificationListenerService() {
                 for (profile in launcherApps.getProfiles()) {
                     val activities = launcherApps.getActivityList(packageName, profile)
                     if (activities.isNotEmpty()) {
-                        return activities[0].label.toString()
+                        return activities[0].getLabel().toString()
                     }
                 }
             }
