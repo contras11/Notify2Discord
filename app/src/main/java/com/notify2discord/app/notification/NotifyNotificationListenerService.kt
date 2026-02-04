@@ -87,12 +87,26 @@ class NotifyNotificationListenerService : NotificationListenerService() {
     }
 
     private fun resolveAppName(packageName: String): String {
-        return try {
+        // まず個人プロファイルで解決を試みる
+        try {
             val appInfo = packageManager.getApplicationInfo(packageName, 0)
-            packageManager.getApplicationLabel(appInfo).toString()
-        } catch (ex: Exception) {
-            // 取得できない場合はパッケージ名で代替
-            packageName
+            return packageManager.getApplicationLabel(appInfo).toString()
+        } catch (_: Exception) {
+            // 個人プロファイルにない場合は仕事領域で解決を試みる
         }
+        try {
+            val userManager = getSystemService(android.os.UserManager::class.java)
+            if (userManager != null) {
+                for (profile in userManager.profiles) {
+                    if (!userManager.isManagedProfileUser(profile)) continue
+                    val profilePM = createContextForUser(profile).packageManager
+                    val appInfo = profilePM.getApplicationInfo(packageName, 0)
+                    return profilePM.getApplicationLabel(appInfo).toString()
+                }
+            }
+        } catch (_: Exception) {
+            // 仕事領域でも解決できない場合はパッケージ名で代替
+        }
+        return packageName
     }
 }

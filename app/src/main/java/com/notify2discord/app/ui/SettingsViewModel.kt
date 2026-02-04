@@ -91,15 +91,37 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     private fun loadInstalledApps() {
         viewModelScope.launch(Dispatchers.IO) {
-            val pm = getApplication<Application>().packageManager
-            val apps = pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
-                .map { appInfo ->
-                    val label = pm.getApplicationLabel(appInfo).toString()
-                    AppInfo(appInfo.packageName, label)
-                }
-                .sortedBy { it.label.lowercase() }
+            val app = getApplication<Application>()
+            val pm = app.packageManager
 
-            _apps.value = apps
+            // 個人プロファイルのアプリ
+            val personalPackages = pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
+                .associate { appInfo ->
+                    appInfo.packageName to pm.getApplicationLabel(appInfo).toString()
+                }
+
+            // 仕事領域のアプリを追加（個人プロファイルに存在しないものだけ）
+            val workOnlyPackages = mutableMapOf<String, String>()
+            try {
+                val userManager = app.getSystemService(android.os.UserManager::class.java)
+                if (userManager != null) {
+                    for (profile in userManager.profiles) {
+                        if (!userManager.isManagedProfileUser(profile)) continue
+                        val profilePM = app.createContextForUser(profile).packageManager
+                        for (appInfo in profilePM.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)) {
+                            if (!personalPackages.containsKey(appInfo.packageName) && !workOnlyPackages.containsKey(appInfo.packageName)) {
+                                workOnlyPackages[appInfo.packageName] = "${profilePM.getApplicationLabel(appInfo)} (仕事領域)"
+                            }
+                        }
+                    }
+                }
+            } catch (_: Exception) {
+                // 仕事領域が存在しない場合や取得できない場合は無視
+            }
+
+            _apps.value = (personalPackages.map { (pkg, label) -> AppInfo(pkg, label) } +
+                    workOnlyPackages.map { (pkg, label) -> AppInfo(pkg, label) })
+                .sortedBy { it.label.lowercase() }
         }
     }
 }
