@@ -3,5 +3,13 @@ package com.notify2discord.app.data
 data class SettingsState(
     val webhookUrl: String = "",
     val forwardingEnabled: Boolean = true,
-    val excludedPackages: Set<String> = emptySet()
+    val selectedPackages: Set<String> = emptySet(),
+    val appWebhooks: Map<String, String> = emptyMap(),
+    val themeMode: ThemeMode = ThemeMode.SYSTEM
 )
+
+enum class ThemeMode {
+    LIGHT,   // ライトモード
+    DARK,    // ダークモード
+    SYSTEM   // システム設定に従う
+}

@@ -3,6 +3,16 @@
     <string name="settings_title">Notify2Discord 設定</string>
     <string name="webhook_label">Discord Webhook URL</string>
     <string name="webhook_save">保存</string>
+    <string name="webhook_status_saved">保存済み</string>
+    <string name="webhook_status_unsaved">未保存の変更があります</string>
+    <string name="webhook_status_empty">Webhook 未設定</string>
+    <string name="webhook_revert">保存済みを反映</string>
+    <string name="webhook_saved_section">保存済みWebhook</string>
+    <string name="webhook_copy">コピー</string>
+    <string name="webhook_clear">削除</string>
+    <string name="webhook_saved_message">Webhook を保存しました</string>
+    <string name="webhook_cleared_message">Webhook を削除しました</string>
+    <string name="webhook_copied_message">Webhook をコピーしました</string>
     <string name="forwarding_toggle">通知の転送を有効にする</string>
     <string name="open_notification_access">通知アクセス設定を開く</string>
     <string name="test_send">テスト送信</string>
@@ -10,4 +20,9 @@
     <string name="webhook_empty_help">Webhook URL を入力してください</string>
     <string name="webhook_invalid_help">URL 形式が正しくありません</string>
     <string name="notification_access_help">通知アクセスを有効にしないと転送できません</string>
+    <string name="webhook_edit">編集</string>
+    <string name="selected_apps_section">転送アプリとWebhook設定</string>
+    <string name="selected_apps_count">%d 個のアプリを転送中</string>
+    <string name="notification_history_section">通知履歴</string>
+    <string name="notification_history_button">履歴を見る</string>
 </resources>

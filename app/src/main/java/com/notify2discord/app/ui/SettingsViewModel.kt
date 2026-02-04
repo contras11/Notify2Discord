@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.notify2discord.app.data.AppInfo
+import com.notify2discord.app.data.NotificationRecord
 import com.notify2discord.app.data.SettingsRepository
 import com.notify2discord.app.data.SettingsState
 import com.notify2discord.app.worker.DiscordWebhookEnqueuer
@@ -23,6 +24,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private val _apps = MutableStateFlow<List<AppInfo>>(emptyList())
     val apps: StateFlow<List<AppInfo>> = _apps
 
+    val notificationHistory: StateFlow<List<NotificationRecord>> = repository.notificationHistoryFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     init {
         loadInstalledApps()
     }
@@ -39,9 +43,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun toggleExcluded(packageName: String, excluded: Boolean) {
+    fun toggleSelected(packageName: String, selected: Boolean) {
         viewModelScope.launch {
-            repository.toggleExcludedPackage(packageName, excluded)
+            repository.toggleSelectedPackage(packageName, selected)
+        }
+    }
+
+    fun setAppWebhook(packageName: String, webhookUrl: String) {
+        viewModelScope.launch {
+            repository.setAppWebhook(packageName, webhookUrl)
+        }
+    }
+
+    fun setThemeMode(mode: com.notify2discord.app.data.ThemeMode) {
+        viewModelScope.launch {
+            repository.setThemeMode(mode)
         }
     }
 
@@ -55,17 +71,28 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun deleteNotificationRecord(id: Long) {
+        viewModelScope.launch {
+            repository.deleteNotificationRecord(id)
+        }
+    }
+
+    fun clearNotificationHistory() {
+        viewModelScope.launch {
+            repository.clearNotificationHistory()
+        }
+    }
+
     private fun loadInstalledApps() {
         viewModelScope.launch(Dispatchers.IO) {
             val pm = getApplication<Application>().packageManager
-            val apps = pm.getInstalledApplications(0)
+            val apps = pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
                 .map { appInfo ->
                     val label = pm.getApplicationLabel(appInfo).toString()
                     AppInfo(appInfo.packageName, label)
                 }
                 .sortedBy { it.label.lowercase() }
 
-            // 画面表示用のリストに反映
             _apps.value = apps
         }
     }

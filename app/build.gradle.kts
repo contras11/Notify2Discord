@@ -57,6 +57,7 @@ dependencies {
 
     implementation("androidx.work:work-runtime-ktx:2.9.0")
     implementation("androidx.datastore:datastore-preferences:1.1.1")
+    implementation("androidx.navigation:navigation-compose:2.7.7")
 
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
 
