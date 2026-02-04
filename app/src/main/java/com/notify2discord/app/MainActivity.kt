@@ -76,6 +76,7 @@ class MainActivity : ComponentActivity() {
                             history = history.value,
                             onDeleteRecord = viewModel::deleteNotificationRecord,
                             onClearAll = viewModel::clearNotificationHistory,
+                            onClearByApp = viewModel::clearNotificationHistoryByApp,
                             onNavigateBack = { navController.popBackStack() }
                         )
                     }

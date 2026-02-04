@@ -83,6 +83,12 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun clearNotificationHistoryByApp(packageName: String) {
+        viewModelScope.launch {
+            repository.clearNotificationHistoryByApp(packageName)
+        }
+    }
+
     private fun loadInstalledApps() {
         viewModelScope.launch(Dispatchers.IO) {
             val pm = getApplication<Application>().packageManager

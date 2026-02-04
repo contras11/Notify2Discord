@@ -122,6 +122,13 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
+    suspend fun clearNotificationHistoryByApp(packageName: String) {
+        dataStore.edit { prefs ->
+            val current = deserializeNotificationHistory(prefs[keyNotificationHistory] ?: "")
+            prefs[keyNotificationHistory] = serializeNotificationHistory(current.filter { it.packageName != packageName })
+        }
+    }
+
     private fun serializeNotificationHistory(records: List<NotificationRecord>): String {
         val array = JSONArray()
         for (r in records) {
