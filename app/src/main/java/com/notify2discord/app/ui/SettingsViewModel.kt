@@ -85,6 +85,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun setRetentionDays(days: Int) {
+        viewModelScope.launch { repository.setRetentionDays(days) }
+    }
+
+    fun cleanupExpiredRecords() {
+        viewModelScope.launch { repository.cleanupExpiredRecords() }
+    }
+
+    fun deleteNotificationRecords(ids: Set<Long>) {
+        viewModelScope.launch { repository.deleteNotificationRecords(ids) }
+    }
+
     fun clearNotificationHistoryByApp(packageName: String) {
         viewModelScope.launch {
             repository.clearNotificationHistoryByApp(packageName)

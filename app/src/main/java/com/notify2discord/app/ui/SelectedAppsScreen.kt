@@ -3,6 +3,7 @@ package com.notify2discord.app.ui
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
@@ -45,6 +46,11 @@ fun SelectedAppsScreen(
     var searchQuery by remember { mutableStateOf("") }
     var sortOrder by remember { mutableStateOf(AppSortOrder.NAME_ASC) }
     var showSortMenu by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+
+    LaunchedEffect(sortOrder) {
+        listState.scrollToItem(0)
+    }
 
     Scaffold(
         topBar = {
@@ -172,6 +178,7 @@ fun SelectedAppsScreen(
 
             // アプリリスト
             LazyColumn(
+                state = listState,
                 contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {

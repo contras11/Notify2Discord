@@ -50,15 +50,15 @@ class MainActivity : ComponentActivity() {
                     bottomBar = {
                         NavigationBar {
                             listOf(
-                                Triple(Screen.Settings, "設定", Icons.Default.Settings),
+                                Triple(Screen.NotificationHistory, "履歴", Icons.Default.Notifications),
                                 Triple(Screen.SelectedApps, "転送アプリ", Icons.Default.Apps),
-                                Triple(Screen.NotificationHistory, "履歴", Icons.Default.Notifications)
+                                Triple(Screen.Settings, "設定", Icons.Default.Settings)
                             ).forEach { (screen, label, icon) ->
                                 NavigationBarItem(
                                     selected = currentDestination == screen.route,
                                     onClick = {
                                         navController.navigate(screen.route) {
-                                            popUpTo(Screen.Settings.route) { saveState = true }
+                                            popUpTo(Screen.NotificationHistory.route) { saveState = true }
                                             launchSingleTop = true
                                             restoreState = true
                                         }
@@ -72,7 +72,7 @@ class MainActivity : ComponentActivity() {
                 ) { outerPadding ->
                     NavHost(
                         navController = navController,
-                        startDestination = Screen.Settings.route,
+                        startDestination = Screen.NotificationHistory.route,
                         modifier = Modifier.fillMaxSize().padding(outerPadding)
                     ) {
                         composable(Screen.Settings.route) {
@@ -91,7 +91,9 @@ class MainActivity : ComponentActivity() {
                                         startActivity(intent)
                                     }
                                 },
-                                onSetThemeMode = viewModel::setThemeMode
+                                onSetThemeMode = viewModel::setThemeMode,
+                                onSetRetentionDays = viewModel::setRetentionDays,
+                                onCleanupExpired = viewModel::cleanupExpiredRecords
                             )
                         }
 
@@ -108,6 +110,7 @@ class MainActivity : ComponentActivity() {
                             NotificationHistoryScreen(
                                 history = history.value,
                                 onDeleteRecord = viewModel::deleteNotificationRecord,
+                                onDeleteRecords = viewModel::deleteNotificationRecords,
                                 onClearAll = viewModel::clearNotificationHistory,
                                 onClearByApp = viewModel::clearNotificationHistoryByApp
                             )

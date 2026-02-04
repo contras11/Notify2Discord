@@ -3,6 +3,7 @@ package com.notify2discord.app.data
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import kotlinx.coroutines.flow.Flow
@@ -20,6 +21,7 @@ class SettingsRepository(private val context: Context) {
     private val keyAppWebhooks = stringPreferencesKey("app_webhooks")
     private val keyThemeMode = stringPreferencesKey("theme_mode")
     private val keyNotificationHistory = stringPreferencesKey("notification_history")
+    private val keyRetentionDays = intPreferencesKey("retention_days")
 
     val settingsFlow: Flow<SettingsState> = dataStore.data.map { prefs ->
         SettingsState(
@@ -27,7 +29,8 @@ class SettingsRepository(private val context: Context) {
             forwardingEnabled = prefs[keyForwardingEnabled] ?: true,
             selectedPackages = prefs[keyExcludedPackages] ?: emptySet(),
             appWebhooks = deserializeAppWebhooks(prefs[keyAppWebhooks] ?: ""),
-            themeMode = ThemeMode.valueOf(prefs[keyThemeMode] ?: ThemeMode.SYSTEM.name)
+            themeMode = ThemeMode.valueOf(prefs[keyThemeMode] ?: ThemeMode.SYSTEM.name),
+            retentionDays = prefs[keyRetentionDays] ?: 30
         )
     }
 
@@ -104,7 +107,12 @@ class SettingsRepository(private val context: Context) {
     suspend fun saveNotificationRecord(record: NotificationRecord) {
         dataStore.edit { prefs ->
             val current = deserializeNotificationHistory(prefs[keyNotificationHistory] ?: "")
-            val updated = (listOf(record) + current).take(100)
+            var updated = (listOf(record) + current).take(500)
+            val retentionDays = prefs[keyRetentionDays] ?: 30
+            if (retentionDays != -1) {
+                val cutoff = System.currentTimeMillis() - retentionDays.toLong() * 24 * 60 * 60 * 1000
+                updated = updated.filter { it.postTime >= cutoff }
+            }
             prefs[keyNotificationHistory] = serializeNotificationHistory(updated)
         }
     }
@@ -119,6 +127,27 @@ class SettingsRepository(private val context: Context) {
     suspend fun clearNotificationHistory() {
         dataStore.edit { prefs ->
             prefs[keyNotificationHistory] = ""
+        }
+    }
+
+    suspend fun setRetentionDays(days: Int) {
+        dataStore.edit { prefs -> prefs[keyRetentionDays] = days }
+    }
+
+    suspend fun cleanupExpiredRecords() {
+        dataStore.edit { prefs ->
+            val retentionDays = prefs[keyRetentionDays] ?: 30
+            if (retentionDays == -1) return@edit
+            val cutoff = System.currentTimeMillis() - retentionDays.toLong() * 24 * 60 * 60 * 1000
+            val current = deserializeNotificationHistory(prefs[keyNotificationHistory] ?: "")
+            prefs[keyNotificationHistory] = serializeNotificationHistory(current.filter { it.postTime >= cutoff })
+        }
+    }
+
+    suspend fun deleteNotificationRecords(ids: Set<Long>) {
+        dataStore.edit { prefs ->
+            val current = deserializeNotificationHistory(prefs[keyNotificationHistory] ?: "")
+            prefs[keyNotificationHistory] = serializeNotificationHistory(current.filter { it.id !in ids })
         }
     }
 

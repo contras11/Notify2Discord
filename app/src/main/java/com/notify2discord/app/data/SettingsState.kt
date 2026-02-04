@@ -5,7 +5,8 @@ data class SettingsState(
     val forwardingEnabled: Boolean = true,
     val selectedPackages: Set<String> = emptySet(),
     val appWebhooks: Map<String, String> = emptyMap(),
-    val themeMode: ThemeMode = ThemeMode.SYSTEM
+    val themeMode: ThemeMode = ThemeMode.SYSTEM,
+    val retentionDays: Int = 30  // -1 = 無制限
 )
 
 enum class ThemeMode {

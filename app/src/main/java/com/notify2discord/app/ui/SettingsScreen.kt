@@ -35,6 +35,15 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.unit.dp
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material3.Icon
+import androidx.compose.ui.text.style.TextAlign
+import com.notify2discord.app.BuildConfig
 import com.notify2discord.app.R
 import com.notify2discord.app.data.SettingsState
 import kotlinx.coroutines.launch
@@ -48,11 +57,14 @@ fun SettingsScreen(
     onOpenNotificationAccess: () -> Unit,
     onTestSend: () -> Unit,
     onRequestIgnoreBatteryOptimizations: () -> Unit,
-    onSetThemeMode: (com.notify2discord.app.data.ThemeMode) -> Unit
+    onSetThemeMode: (com.notify2discord.app.data.ThemeMode) -> Unit,
+    onSetRetentionDays: (Int) -> Unit,
+    onCleanupExpired: () -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
+    val context = androidx.compose.ui.platform.LocalContext.current
 
     var webhookText by rememberSaveable(state.webhookUrl) {
         mutableStateOf(state.webhookUrl)
@@ -265,6 +277,97 @@ fun SettingsScreen(
                     }
                 }
             }
+
+            Divider()
+
+            // --- 履歴の保持期間 ---
+            Column {
+                Text(
+                    text = "履歴の保持期間",
+                    style = MaterialTheme.typography.titleMedium
+                )
+                Text(
+                    text = "設定した日数より古い履歴は自動で削除されます。「無制限」の場合は削除しません。",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(modifier = Modifier.padding(top = 8.dp))
+                val retentionOptions = listOf(
+                    7 to "1週間",
+                    14 to "2週間",
+                    30 to "1ヶ月",
+                    90 to "3ヶ月",
+                    -1 to "無制限"
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    retentionOptions.forEach { (days, label) ->
+                        val isSelected = state.retentionDays == days
+                        Button(
+                            onClick = { onSetRetentionDays(days) },
+                            modifier = Modifier.weight(1f),
+                            colors = if (isSelected) {
+                                ButtonDefaults.buttonColors()
+                            } else {
+                                ButtonDefaults.outlinedButtonColors()
+                            }
+                        ) {
+                            Text(text = label, style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
+                }
+                Spacer(modifier = Modifier.padding(top = 8.dp))
+                Button(
+                    onClick = onCleanupExpired,
+                    colors = ButtonDefaults.outlinedButtonColors()
+                ) {
+                    Text("古い履歴を今すぐ削除")
+                }
+            }
+
+            Divider()
+
+            // --- リンク ---
+            Text(
+                text = "リンク",
+                style = MaterialTheme.typography.titleMedium
+            )
+            val links = listOf(
+                "GitHubリポジトリ" to "https://github.com/contras11/Notify2Discord",
+                "個人開発ポータル" to "https://remudo.com/",
+                "X (Twitter)" to "https://x.com/remudo_"
+            )
+            links.forEach { (label, url) ->
+                Row(
+                    modifier = Modifier.fillMaxWidth()
+                        .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                        .padding(vertical = 12.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(text = label, style = MaterialTheme.typography.bodyMedium)
+                    Icon(
+                        Icons.Default.OpenInNew,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                Divider(
+                    color = MaterialTheme.colorScheme.outlineVariant,
+                    thickness = 0.5.dp
+                )
+            }
+
+            Spacer(modifier = Modifier.padding(top = 16.dp))
+            Text(
+                text = "バージョン ${BuildConfig.VERSION_NAME}",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.fillMaxWidth(),
+                textAlign = TextAlign.Center
+            )
 
         }
     }
