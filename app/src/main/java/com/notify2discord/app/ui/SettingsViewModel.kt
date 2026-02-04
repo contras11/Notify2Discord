@@ -1,6 +1,8 @@
 package com.notify2discord.app.ui
 
 import android.app.Application
+import android.content.pm.LauncherApps
+import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.notify2discord.app.data.AppInfo
@@ -95,7 +97,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val pm = app.packageManager
 
             // 個人プロファイルのアプリ
-            val personalPackages = pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
+            val personalPackages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
                 .associate { appInfo ->
                     appInfo.packageName to pm.getApplicationLabel(appInfo).toString()
                 }
@@ -103,14 +105,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             // 仕事領域のアプリを追加（個人プロファイルに存在しないものだけ）
             val workOnlyPackages = mutableMapOf<String, String>()
             try {
-                val userManager = app.getSystemService(android.os.UserManager::class.java)
-                if (userManager != null) {
-                    for (profile in userManager.profiles) {
-                        if (!userManager.isManagedProfileUser(profile)) continue
-                        val profilePM = app.createContextForUser(profile).packageManager
-                        for (appInfo in profilePM.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)) {
-                            if (!personalPackages.containsKey(appInfo.packageName) && !workOnlyPackages.containsKey(appInfo.packageName)) {
-                                workOnlyPackages[appInfo.packageName] = "${profilePM.getApplicationLabel(appInfo)} (仕事領域)"
+                val launcherApps = app.getSystemService(LauncherApps::class.java)
+                if (launcherApps != null) {
+                    for (profile in launcherApps.getProfiles()) {
+                        for (activity in launcherApps.getActivityList(null, profile)) {
+                            val pkg = activity.packageName
+                            if (!personalPackages.containsKey(pkg) && !workOnlyPackages.containsKey(pkg)) {
+                                workOnlyPackages[pkg] = "${activity.label} (仕事領域)"
                             }
                         }
                     }

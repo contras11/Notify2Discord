@@ -3,6 +3,7 @@ package com.notify2discord.app.notification
 import android.app.Notification
 import android.content.ComponentName
 import android.os.Build
+import android.content.pm.LauncherApps
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.notify2discord.app.data.NotificationRecord
@@ -95,13 +96,13 @@ class NotifyNotificationListenerService : NotificationListenerService() {
             // 個人プロファイルにない場合は仕事領域で解決を試みる
         }
         try {
-            val userManager = getSystemService(android.os.UserManager::class.java)
-            if (userManager != null) {
-                for (profile in userManager.profiles) {
-                    if (!userManager.isManagedProfileUser(profile)) continue
-                    val profilePM = createContextForUser(profile).packageManager
-                    val appInfo = profilePM.getApplicationInfo(packageName, 0)
-                    return profilePM.getApplicationLabel(appInfo).toString()
+            val launcherApps = getSystemService(LauncherApps::class.java)
+            if (launcherApps != null) {
+                for (profile in launcherApps.getProfiles()) {
+                    val activities = launcherApps.getActivityList(packageName, profile)
+                    if (activities.isNotEmpty()) {
+                        return activities[0].label.toString()
+                    }
                 }
             }
         } catch (_: Exception) {
