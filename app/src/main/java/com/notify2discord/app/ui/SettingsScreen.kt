@@ -70,10 +70,8 @@ fun SettingsScreen(
         if (webhookText != state.webhookUrl) {
             webhookText = state.webhookUrl
         }
-        // URLが空になった時は入力モードに戻る
-        if (state.webhookUrl.isBlank()) {
-            isEditing = true
-        }
+        // 空になった時は入力モード、DataStore から読み込んで非空になった時は表示モード
+        isEditing = state.webhookUrl.isBlank()
     }
 
     val savedMessage = stringResource(id = R.string.webhook_saved_message)
