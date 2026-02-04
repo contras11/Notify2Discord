@@ -1,8 +1,8 @@
 package com.notify2discord.app.data
 
 import android.content.Context
-import androidx.datastore.core.ReplaceFileCorruptionHandler
-import androidx.datastore.preferences.api.emptyPreferences
+import androidx.datastore.core.handlers.ReplaceFileCorruptionHandler
+import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.preferencesDataStore
 
 // アプリ設定を保存する DataStore
