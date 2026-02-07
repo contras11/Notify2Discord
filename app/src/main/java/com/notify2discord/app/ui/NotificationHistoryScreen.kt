@@ -10,8 +10,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,24 +21,34 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.FilterList
 import androidx.compose.material.icons.filled.Notifications
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Badge
 import androidx.compose.material3.Divider
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -62,7 +70,6 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
-// アプリごとにまとめた要約データ
 private data class AppNotificationSummary(
     val packageName: String,
     val appName: String,
@@ -70,13 +77,29 @@ private data class AppNotificationSummary(
     val latest: NotificationRecord
 )
 
-// チャット画面用アイテム
 private sealed class ChatItem {
     data class DateSeparator(val label: String) : ChatItem()
     data class Message(val record: NotificationRecord) : ChatItem()
 }
 
-// バブルの Shape（左下だけ尖らせてLINE風にする）
+private enum class HistoryRangeFilter {
+    TODAY,
+    LAST_7_DAYS,
+    LAST_30_DAYS,
+    ALL
+}
+
+private enum class AppListSortOrder {
+    LATEST,
+    COUNT,
+    APP_NAME
+}
+
+private enum class DetailSortOrder {
+    NEWEST,
+    OLDEST
+}
+
 private val bubbleShape = RoundedCornerShape(
     topStart = 16.dp,
     topEnd = 16.dp,
@@ -93,7 +116,6 @@ fun NotificationHistoryScreen(
     onClearAll: () -> Unit,
     onClearByApp: (String) -> Unit
 ) {
-    // null = アプリ一覧、非null = そのアプリの履歴詳細
     var selectedAppPackage by remember { mutableStateOf<String?>(null) }
 
     if (selectedAppPackage != null) {
@@ -120,7 +142,6 @@ fun NotificationHistoryScreen(
     }
 }
 
-// アプリアイコン表示
 @Composable
 private fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
     val context = LocalContext.current
@@ -154,8 +175,6 @@ private fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
     }
 }
 
-// --- アプリ一覧画面 (LINE風コンタクトリスト) ---
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppListScreen(
@@ -166,10 +185,18 @@ private fun AppListScreen(
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
     var deleteConfirmApp by remember { mutableStateOf<AppNotificationSummary?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+    var rangeFilter by remember { mutableStateOf(HistoryRangeFilter.ALL) }
+    var sortOrder by remember { mutableStateOf(AppListSortOrder.LATEST) }
+    var showRangeMenu by remember { mutableStateOf(false) }
+    var showSortMenu by remember { mutableStateOf(false) }
 
-    // アプリごとにグループ化し、最新時刻の降順でソート
-    val summaries = remember(history) {
-        history
+    val rangeFilteredRecords = remember(history, rangeFilter) {
+        filterRecordsByRange(history, rangeFilter)
+    }
+    val summaries = remember(rangeFilteredRecords, searchQuery, sortOrder) {
+        val query = searchQuery.trim()
+        val source = rangeFilteredRecords
             .groupBy { it.packageName }
             .map { (pkg, records) ->
                 AppNotificationSummary(
@@ -179,14 +206,68 @@ private fun AppListScreen(
                     latest = records.maxByOrNull { it.postTime } ?: records.first()
                 )
             }
-            .sortedByDescending { it.latest.postTime }
+            .filter { summary ->
+                if (query.isBlank()) {
+                    true
+                } else {
+                    summary.appName.contains(query, ignoreCase = true) ||
+                        summary.packageName.contains(query, ignoreCase = true) ||
+                        summary.latest.title.contains(query, ignoreCase = true) ||
+                        summary.latest.text.contains(query, ignoreCase = true)
+                }
+            }
+
+        when (sortOrder) {
+            AppListSortOrder.LATEST -> source.sortedByDescending { it.latest.postTime }
+            AppListSortOrder.COUNT -> source.sortedByDescending { it.count }
+            AppListSortOrder.APP_NAME -> source.sortedBy { it.appName.lowercase() }
+        }
     }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("通知履歴") },
+                colors = appBarColors(),
                 actions = {
+                    Box {
+                        IconButton(onClick = { showRangeMenu = true }) {
+                            Icon(Icons.Default.FilterList, "期間フィルタ")
+                        }
+                        DropdownMenu(
+                            expanded = showRangeMenu,
+                            onDismissRequest = { showRangeMenu = false }
+                        ) {
+                            HistoryRangeFilter.values().forEach { filter ->
+                                DropdownMenuItem(
+                                    text = { Text(filter.label()) },
+                                    onClick = {
+                                        rangeFilter = filter
+                                        showRangeMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    Box {
+                        IconButton(onClick = { showSortMenu = true }) {
+                            Icon(Icons.Default.Sort, "並び替え")
+                        }
+                        DropdownMenu(
+                            expanded = showSortMenu,
+                            onDismissRequest = { showSortMenu = false }
+                        ) {
+                            AppListSortOrder.values().forEach { order ->
+                                DropdownMenuItem(
+                                    text = { Text(order.label()) },
+                                    onClick = {
+                                        sortOrder = order
+                                        showSortMenu = false
+                                    }
+                                )
+                            }
+                        }
+                    }
                     if (summaries.isNotEmpty()) {
                         IconButton(onClick = { showClearConfirm = true }) {
                             Icon(Icons.Default.Delete, "全削除")
@@ -196,93 +277,104 @@ private fun AppListScreen(
             )
         }
     ) { padding ->
-        if (summaries.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "履歴がありません",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            LazyColumn(
-                modifier = Modifier.fillMaxSize().padding(padding)
-            ) {
-                items(summaries, key = { it.packageName }) { summary ->
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onSelectApp(summary.packageName) }
-                            .padding(horizontal = 16.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        // 円形アプリアイコン 48dp
-                        AppIcon(
-                            packageName = summary.packageName,
-                            modifier = Modifier.size(48.dp).clip(CircleShape)
-                        )
-                        // アプリ名・プレビュー
-                        Column(
-                            modifier = Modifier.weight(1f).padding(start = 12.dp),
-                            verticalArrangement = Arrangement.spacedBy(2.dp)
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                label = { Text("履歴を検索（アプリ/本文）") },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                singleLine = true
+            )
+
+            if (summaries.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "履歴がありません",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize()
+                ) {
+                    items(summaries, key = { it.packageName }) { summary ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { onSelectApp(summary.packageName) }
+                                .padding(horizontal = 16.dp, vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Text(
-                                text = summary.appName,
-                                style = MaterialTheme.typography.bodyLarge,
-                                fontWeight = FontWeight.SemiBold
+                            AppIcon(
+                                packageName = summary.packageName,
+                                modifier = Modifier.size(48.dp).clip(CircleShape)
                             )
-                            val preview = summary.latest.title.ifBlank { summary.latest.text }
-                            if (preview.isNotBlank()) {
+                            Column(
+                                modifier = Modifier.weight(1f).padding(start = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(2.dp)
+                            ) {
                                 Text(
-                                    text = preview,
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis
+                                    text = summary.appName,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    fontWeight = FontWeight.SemiBold
                                 )
-                            }
-                        }
-                        // 時刻・バッジ・削除
-                        Column(
-                            horizontalAlignment = Alignment.End,
-                            verticalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Text(
-                                text = formatSummaryTime(summary.latest.postTime),
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Badge {
-                                    Text(text = summary.count.toString())
-                                }
-                                IconButton(
-                                    onClick = { deleteConfirmApp = summary },
-                                    modifier = Modifier.size(32.dp)
-                                ) {
-                                    Icon(
-                                        Icons.Default.Delete,
-                                        contentDescription = "「${summary.appName}」の履歴を削除",
-                                        modifier = Modifier.size(18.dp),
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                val preview = summary.latest.title.ifBlank { summary.latest.text }
+                                if (preview.isNotBlank()) {
+                                    Text(
+                                        text = preview,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
                                     )
                                 }
                             }
+                            Column(
+                                horizontalAlignment = Alignment.End,
+                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Text(
+                                    text = formatSummaryTime(summary.latest.postTime),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Badge { Text(text = summary.count.toString()) }
+                                    IconButton(
+                                        onClick = { deleteConfirmApp = summary },
+                                        modifier = Modifier.size(32.dp)
+                                    ) {
+                                        Icon(
+                                            Icons.Default.Delete,
+                                            contentDescription = "「${summary.appName}」の履歴を削除",
+                                            modifier = Modifier.size(18.dp),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
                         }
+                        Divider(
+                            color = MaterialTheme.colorScheme.outlineVariant,
+                            thickness = 0.5.dp
+                        )
                     }
-                    Divider(
-                        color = MaterialTheme.colorScheme.outlineVariant,
-                        thickness = 0.5.dp
-                    )
                 }
             }
         }
     }
 
-    // アプリグループ削除確認ダイアログ
     if (deleteConfirmApp != null) {
         val target = deleteConfirmApp!!
         AlertDialog(
@@ -305,7 +397,6 @@ private fun AppListScreen(
         )
     }
 
-    // 全削除確認ダイアログ
     if (showClearConfirm) {
         AlertDialog(
             onDismissRequest = { showClearConfirm = false },
@@ -328,8 +419,6 @@ private fun AppListScreen(
     }
 }
 
-// --- アプリ内履歴画面 (チャットバブル + 複数選択) ---
-
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AppDetailScreen(
@@ -345,15 +434,43 @@ private fun AppDetailScreen(
     var showClearConfirm by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
     var pendingBatchDelete by remember { mutableStateOf<Set<Long>?>(null) }
+    var searchQuery by remember { mutableStateOf("") }
+    var rangeFilter by remember { mutableStateOf(HistoryRangeFilter.ALL) }
+    var sortOrder by remember { mutableStateOf(DetailSortOrder.NEWEST) }
+    var showRangeMenu by remember { mutableStateOf(false) }
+    var showSortMenu by remember { mutableStateOf(false) }
 
-    val chatItems = remember(records) { buildChatItems(records) }
+    val filteredRecords = remember(records, searchQuery, rangeFilter, sortOrder) {
+        val byRange = filterRecordsByRange(records, rangeFilter)
+        val bySearch = byRange.filter { record ->
+            val query = searchQuery.trim()
+            if (query.isBlank()) {
+                true
+            } else {
+                record.title.contains(query, ignoreCase = true) ||
+                    record.text.contains(query, ignoreCase = true)
+            }
+        }
+        when (sortOrder) {
+            DetailSortOrder.NEWEST -> bySearch.sortedByDescending { it.postTime }
+            DetailSortOrder.OLDEST -> bySearch.sortedBy { it.postTime }
+        }
+    }
+    val chatItems = remember(filteredRecords, sortOrder) {
+        buildChatItems(filteredRecords, newestFirst = sortOrder == DetailSortOrder.NEWEST)
+    }
+
+    LaunchedEffect(filteredRecords) {
+        val visibleIds = filteredRecords.map { it.id }.toSet()
+        selectedIds = selectedIds.intersect(visibleIds)
+    }
 
     Scaffold(
         topBar = {
             if (selectedIds.isNotEmpty()) {
-                // 選択モード TopBar
                 TopAppBar(
                     title = { Text("${selectedIds.size}件 選択中") },
+                    colors = appBarColors(),
                     navigationIcon = {
                         IconButton(onClick = { selectedIds = emptySet() }) {
                             Icon(Icons.Default.Close, "選択キャンセル")
@@ -366,7 +483,6 @@ private fun AppDetailScreen(
                     }
                 )
             } else {
-                // 通常 TopBar
                 TopAppBar(
                     title = {
                         Row(
@@ -377,12 +493,51 @@ private fun AppDetailScreen(
                             Text(appName)
                         }
                     },
+                    colors = appBarColors(),
                     navigationIcon = {
                         IconButton(onClick = onNavigateBack) {
                             Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る")
                         }
                     },
                     actions = {
+                        Box {
+                            IconButton(onClick = { showRangeMenu = true }) {
+                                Icon(Icons.Default.FilterList, "期間フィルタ")
+                            }
+                            DropdownMenu(
+                                expanded = showRangeMenu,
+                                onDismissRequest = { showRangeMenu = false }
+                            ) {
+                                HistoryRangeFilter.values().forEach { filter ->
+                                    DropdownMenuItem(
+                                        text = { Text(filter.label()) },
+                                        onClick = {
+                                            rangeFilter = filter
+                                            showRangeMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        Box {
+                            IconButton(onClick = { showSortMenu = true }) {
+                                Icon(Icons.Default.Sort, "並び替え")
+                            }
+                            DropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false }
+                            ) {
+                                DetailSortOrder.values().forEach { order ->
+                                    DropdownMenuItem(
+                                        text = { Text(order.label()) },
+                                        onClick = {
+                                            sortOrder = order
+                                            showSortMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
                         if (records.isNotEmpty()) {
                             IconButton(onClick = { showClearConfirm = true }) {
                                 Icon(Icons.Default.Delete, "このアプリの履歴を全削除")
@@ -393,97 +548,116 @@ private fun AppDetailScreen(
             }
         }
     ) { padding ->
-        if (records.isEmpty()) {
-            Box(
-                modifier = Modifier.fillMaxSize().padding(padding),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "履歴がありません",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        } else {
-            LazyColumn(
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+        ) {
+            OutlinedTextField(
+                value = searchQuery,
+                onValueChange = { searchQuery = it },
                 modifier = Modifier
-                    .fillMaxSize()
-                    .padding(padding)
-                    .background(MaterialTheme.colorScheme.surfaceVariant),
-                contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp),
-                verticalArrangement = Arrangement.spacedBy(4.dp),
-                reverseLayout = true
-            ) {
-                items(chatItems, key = {
-                    when (it) {
-                        is ChatItem.DateSeparator -> "sep_${it.label}"
-                        is ChatItem.Message -> "msg_${it.record.id}"
-                    }
-                }) { item ->
-                    when (item) {
-                        is ChatItem.DateSeparator -> {
-                            Text(
-                                text = item.label,
-                                style = MaterialTheme.typography.labelMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp),
-                                textAlign = TextAlign.Center
-                            )
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                label = { Text("このアプリ内を検索（タイトル/本文）") },
+                leadingIcon = { Icon(Icons.Default.Search, null) },
+                singleLine = true
+            )
+
+            if (filteredRecords.isEmpty()) {
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "履歴がありません",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            } else {
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
+                    contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    items(chatItems, key = {
+                        when (it) {
+                            is ChatItem.DateSeparator -> "sep_${it.label}"
+                            is ChatItem.Message -> "msg_${it.record.id}"
                         }
-                        is ChatItem.Message -> {
-                            val record = item.record
-                            val isSelected = record.id in selectedIds
-                            Surface(
-                                shape = bubbleShape,
-                                color = MaterialTheme.colorScheme.surface,
-                                modifier = Modifier
-                                    .fillMaxWidth(0.85f)
-                                    .combinedClickable(
-                                        onDoubleClick = null,
-                                        onClick = {
-                                            if (selectedIds.isNotEmpty()) {
-                                                selectedIds = if (isSelected) selectedIds - record.id
-                                                else selectedIds + record.id
-                                            } else {
-                                                recordToDelete = record
+                    }) { item ->
+                        when (item) {
+                            is ChatItem.DateSeparator -> {
+                                Text(
+                                    text = item.label,
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 8.dp),
+                                    textAlign = TextAlign.Center
+                                )
+                            }
+
+                            is ChatItem.Message -> {
+                                val record = item.record
+                                val isSelected = record.id in selectedIds
+                                Surface(
+                                    shape = bubbleShape,
+                                    color = MaterialTheme.colorScheme.surface,
+                                    modifier = Modifier
+                                        .fillMaxWidth(0.85f)
+                                        .combinedClickable(
+                                            onDoubleClick = null,
+                                            onClick = {
+                                                if (selectedIds.isNotEmpty()) {
+                                                    selectedIds = if (isSelected) selectedIds - record.id
+                                                    else selectedIds + record.id
+                                                } else {
+                                                    recordToDelete = record
+                                                }
+                                            },
+                                            onLongClick = {
+                                                selectedIds = selectedIds + record.id
                                             }
-                                        },
-                                        onLongClick = {
-                                            selectedIds = selectedIds + record.id
-                                        }
-                                    )
-                                    .then(
-                                        if (isSelected) Modifier.border(2.dp, MaterialTheme.colorScheme.primary, bubbleShape)
-                                        else Modifier
-                                    )
-                            ) {
-                                Column(
-                                    modifier = Modifier.padding(12.dp),
-                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                        )
+                                        .then(
+                                            if (isSelected) {
+                                                Modifier.border(2.dp, MaterialTheme.colorScheme.primary, bubbleShape)
+                                            } else {
+                                                Modifier
+                                            }
+                                        )
                                 ) {
-                                    if (record.title.isNotBlank()) {
+                                    Column(
+                                        modifier = Modifier.padding(12.dp),
+                                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                                    ) {
+                                        if (record.title.isNotBlank()) {
+                                            Text(
+                                                text = record.title,
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                        if (record.text.isNotBlank()) {
+                                            Text(
+                                                text = record.text,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                            )
+                                        }
                                         Text(
-                                            text = record.title,
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            fontWeight = FontWeight.Bold
+                                            text = formatBubbleTime(record.postTime),
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            textAlign = TextAlign.End
                                         )
                                     }
-                                    if (record.text.isNotBlank()) {
-                                        Text(
-                                            text = record.text,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Text(
-                                        text = formatBubbleTime(record.postTime),
-                                        style = MaterialTheme.typography.labelSmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.fillMaxWidth(),
-                                        textAlign = TextAlign.End
-                                    )
                                 }
                             }
                         }
@@ -493,7 +667,6 @@ private fun AppDetailScreen(
         }
     }
 
-    // 1件削除確認
     if (recordToDelete != null) {
         AlertDialog(
             onDismissRequest = { recordToDelete = null },
@@ -515,7 +688,6 @@ private fun AppDetailScreen(
         )
     }
 
-    // バッチ削除確認
     if (pendingBatchDelete != null) {
         val count = pendingBatchDelete!!.size
         AlertDialog(
@@ -539,7 +711,6 @@ private fun AppDetailScreen(
         )
     }
 
-    // アプリ内全削除確認
     if (showClearConfirm) {
         AlertDialog(
             onDismissRequest = { showClearConfirm = false },
@@ -562,41 +733,67 @@ private fun AppDetailScreen(
     }
 }
 
-// --- ヘルパー関数 ---
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun appBarColors() = TopAppBarDefaults.topAppBarColors(
+    containerColor = MaterialTheme.colorScheme.primary,
+    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+)
 
-// reverseLayout=true 用のチャットアイテム構築
-// 日の降順・メッセージの降順・各日グループの末尾にセパレータを積む
-private fun buildChatItems(records: List<NotificationRecord>): List<ChatItem> {
+private fun filterRecordsByRange(
+    records: List<NotificationRecord>,
+    filter: HistoryRangeFilter
+): List<NotificationRecord> {
+    if (filter == HistoryRangeFilter.ALL) return records
+    val now = System.currentTimeMillis()
+    val start = when (filter) {
+        HistoryRangeFilter.TODAY -> LocalDate.now()
+            .atStartOfDay(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+        HistoryRangeFilter.LAST_7_DAYS -> now - 7L * 24 * 60 * 60 * 1000
+        HistoryRangeFilter.LAST_30_DAYS -> now - 30L * 24 * 60 * 60 * 1000
+        HistoryRangeFilter.ALL -> 0L
+    }
+    return records.filter { it.postTime >= start }
+}
+
+private fun buildChatItems(records: List<NotificationRecord>, newestFirst: Boolean): List<ChatItem> {
     val grouped = records.groupBy {
         Instant.ofEpochMilli(it.postTime).atZone(ZoneId.systemDefault()).toLocalDate()
     }
-    val sortedDates = grouped.keys.sortedDescending()
+    val sortedDates = if (newestFirst) grouped.keys.sortedDescending() else grouped.keys.sorted()
     val items = mutableListOf<ChatItem>()
     val today = LocalDate.now()
     val yesterday = today.minusDays(1)
-    for (date in sortedDates) {
-        val dayRecords = grouped[date]!!.sortedByDescending { it.postTime }
-        dayRecords.forEach { items.add(ChatItem.Message(it)) }
+    sortedDates.forEach { date ->
         val label = when (date) {
             today -> "今日"
             yesterday -> "昨日"
             else -> date.format(DateTimeFormatter.ofPattern("M月d日"))
         }
-        items.add(ChatItem.DateSeparator(label))
+        items += ChatItem.DateSeparator(label)
+        val dayRecords = if (newestFirst) {
+            grouped[date]!!.sortedByDescending { it.postTime }
+        } else {
+            grouped[date]!!.sortedBy { it.postTime }
+        }
+        dayRecords.forEach { items += ChatItem.Message(it) }
     }
     return items
 }
 
-// バブル内時刻フォーマット
 private fun formatBubbleTime(postTime: Long): String {
     val zdt = Instant.ofEpochMilli(postTime).atZone(ZoneId.systemDefault())
-    return if (zdt.toLocalDate() == LocalDate.now())
+    return if (zdt.toLocalDate() == LocalDate.now()) {
         zdt.format(DateTimeFormatter.ofPattern("HH:mm"))
-    else
+    } else {
         zdt.format(DateTimeFormatter.ofPattern("M/d HH:mm"))
+    }
 }
 
-// アプリ一覧の時刻フォーマット
 private fun formatSummaryTime(postTime: Long): String {
     val zdt = Instant.ofEpochMilli(postTime).atZone(ZoneId.systemDefault())
     val today = LocalDate.now()
@@ -605,4 +802,22 @@ private fun formatSummaryTime(postTime: Long): String {
         today.minusDays(1) -> "昨日 " + zdt.format(DateTimeFormatter.ofPattern("HH:mm"))
         else -> zdt.format(DateTimeFormatter.ofPattern("M/d"))
     }
+}
+
+private fun HistoryRangeFilter.label(): String = when (this) {
+    HistoryRangeFilter.TODAY -> "今日"
+    HistoryRangeFilter.LAST_7_DAYS -> "7日以内"
+    HistoryRangeFilter.LAST_30_DAYS -> "30日以内"
+    HistoryRangeFilter.ALL -> "全期間"
+}
+
+private fun AppListSortOrder.label(): String = when (this) {
+    AppListSortOrder.LATEST -> "最新順"
+    AppListSortOrder.COUNT -> "件数順"
+    AppListSortOrder.APP_NAME -> "アプリ名順"
+}
+
+private fun DetailSortOrder.label(): String = when (this) {
+    DetailSortOrder.NEWEST -> "新しい順"
+    DetailSortOrder.OLDEST -> "古い順"
 }

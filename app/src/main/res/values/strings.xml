@@ -1,6 +1,6 @@
 <resources>
     <string name="app_name">Notify2Discord</string>
-    <string name="settings_title">Notify2Discord 設定</string>
+    <string name="settings_title">設定</string>
     <string name="webhook_label">Discord Webhook URL</string>
     <string name="webhook_save">保存</string>
     <string name="webhook_status_saved">保存済み</string>

@@ -2,13 +2,13 @@ package com.notify2discord.app.notification
 
 import android.app.Notification
 import android.content.ComponentName
-import android.os.Build
 import android.content.pm.LauncherApps
+import android.os.Build
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.notify2discord.app.data.NotificationRecord
 import com.notify2discord.app.data.SettingsRepository
-import com.notify2discord.app.worker.DiscordWebhookEnqueuer
+import com.notify2discord.app.notification.model.NotificationPayload
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -18,11 +18,13 @@ import kotlinx.coroutines.launch
 class NotifyNotificationListenerService : NotificationListenerService() {
 
     private lateinit var repository: SettingsRepository
+    private lateinit var pipeline: NotificationDispatchPipeline
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     override fun onCreate() {
         super.onCreate()
         repository = SettingsRepository(applicationContext)
+        pipeline = NotificationDispatchPipeline(applicationContext, repository)
 
         // フォアグラウンドサービスとして実行
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -48,39 +50,40 @@ class NotifyNotificationListenerService : NotificationListenerService() {
             if (!settings.forwardingEnabled) return@launch
 
             // ホワイトリスト判定：空なら全アプリ転送、非空なら選択したアプリのみ転送
-            if (settings.selectedPackages.isNotEmpty() && !settings.selectedPackages.contains(sbn.packageName)) {
+            if (settings.selectedPackages.isNotEmpty() && sbn.packageName !in settings.selectedPackages) {
                 return@launch
             }
 
-            // アプリごとのWebhook URLを解決（個別設定がなければデフォルトを使用）
-            val webhookUrl = settings.appWebhooks[sbn.packageName]
-                ?.takeIf { it.isNotBlank() }
-                ?: settings.webhookUrl
-
-            if (webhookUrl.isBlank()) return@launch
-
             val appName = resolveAppName(sbn.packageName)
-            val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString()
+            val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
             val text = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
-                ?: notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString()
+                ?: notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
 
-            val content = NotificationMessageFormatter.format(
+            val payload = NotificationPayload(
+                packageName = sbn.packageName,
                 appName = appName,
                 title = title,
                 text = text,
-                postTime = sbn.postTime
+                postTime = sbn.postTime,
+                channelId = sbn.notification.channelId.orEmpty(),
+                importance = sbn.notification.priority,
+                isSummary = (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
             )
 
-            // WorkManager の直列キューに積んで送信する
-            DiscordWebhookEnqueuer.enqueue(applicationContext, webhookUrl, content)
+            val accepted = pipeline.process(
+                settings = settings,
+                payload = payload,
+                sourceNotification = notification
+            )
+            if (!accepted) return@launch
 
-            // 通知履歴を保存
+            // 通知履歴は実際に送信対象となったもののみ保存
             val record = NotificationRecord(
                 id = System.nanoTime(),
                 packageName = sbn.packageName,
                 appName = appName,
-                title = title ?: "",
-                text = text ?: "",
+                title = title,
+                text = text,
                 postTime = sbn.postTime
             )
             repository.saveNotificationRecord(record)

@@ -4,4 +4,5 @@ sealed class Screen(val route: String) {
     object Settings : Screen("settings")
     object SelectedApps : Screen("selected_apps")
     object NotificationHistory : Screen("notification_history")
+    object Rules : Screen("rules")
 }

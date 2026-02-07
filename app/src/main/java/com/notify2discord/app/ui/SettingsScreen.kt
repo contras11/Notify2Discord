@@ -1,17 +1,27 @@
 package com.notify2discord.app.ui
 
+import android.content.Intent
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -34,30 +44,41 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.unit.dp
-import android.content.Intent
-import android.net.Uri
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material3.Icon
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
 import com.notify2discord.app.BuildConfig
 import com.notify2discord.app.R
 import com.notify2discord.app.data.SettingsState
+import com.notify2discord.app.data.ThemeMode
+import com.notify2discord.app.data.WebhookHealthLevel
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.LocalDateTime
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SettingsScreen(
     state: SettingsState,
+    operationMessage: String?,
+    showRestorePrompt: Boolean,
+    hasInternalSnapshot: Boolean,
+    onConsumeOperationMessage: () -> Unit,
+    onDismissRestorePrompt: () -> Unit,
+    onRestoreFromInternalSnapshot: () -> Unit,
+    onExportSettingsNow: () -> Unit,
+    onImportLatestBackup: () -> Unit,
+    onExportSettingsToPickedFile: (Uri) -> Unit,
+    onImportSettingsFromPickedFile: (Uri) -> Unit,
     onSaveWebhook: (String) -> Unit,
+    onRecheckWebhook: (String) -> Unit,
     onToggleForwarding: (Boolean) -> Unit,
     onOpenNotificationAccess: () -> Unit,
     onTestSend: () -> Unit,
     onRequestIgnoreBatteryOptimizations: () -> Unit,
-    onSetThemeMode: (com.notify2discord.app.data.ThemeMode) -> Unit,
+    onOpenRules: () -> Unit,
+    onSetThemeMode: (ThemeMode) -> Unit,
     onSetRetentionDays: (Int) -> Unit,
     onCleanupExpired: () -> Unit
 ) {
@@ -65,11 +86,21 @@ fun SettingsScreen(
     val scope = rememberCoroutineScope()
     val clipboardManager = LocalClipboardManager.current
     val context = androidx.compose.ui.platform.LocalContext.current
+    val createBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.CreateDocument("application/json")
+    ) { uri ->
+        uri?.let(onExportSettingsToPickedFile)
+    }
+    val importBackupLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        uri?.let(onImportSettingsFromPickedFile)
+    }
+    val dateTimeFormatter = remember { DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm") }
 
     var webhookText by rememberSaveable(state.webhookUrl) {
         mutableStateOf(state.webhookUrl)
     }
-    // 保存済みの場合は表示モード、未設定・クリア後は入力モード
     var isEditing by rememberSaveable {
         mutableStateOf(state.webhookUrl.isBlank())
     }
@@ -80,7 +111,6 @@ fun SettingsScreen(
         if (webhookText != state.webhookUrl) {
             webhookText = state.webhookUrl
         }
-        // 空になった時は入力モード、DataStore から読み込んで非空になった時は表示モード
         isEditing = state.webhookUrl.isBlank()
     }
 
@@ -88,13 +118,18 @@ fun SettingsScreen(
     val clearedMessage = stringResource(id = R.string.webhook_cleared_message)
     val copiedMessage = stringResource(id = R.string.webhook_copied_message)
 
+    LaunchedEffect(operationMessage) {
+        val message = operationMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
+        onConsumeOperationMessage()
+    }
+
     LaunchedEffect(state.webhookUrl, pendingSaveUrl) {
         val target = pendingSaveUrl ?: return@LaunchedEffect
         if (state.webhookUrl == target) {
             snackbarHostState.showSnackbar(pendingSaveMessage ?: savedMessage)
             pendingSaveUrl = null
             pendingSaveMessage = null
-            // 保存成功時に表示モードに切り替え（URLが非空の場合）
             if (state.webhookUrl.isNotBlank()) {
                 isEditing = false
             }
@@ -112,10 +147,19 @@ fun SettingsScreen(
             webhookText.startsWith("https://discordapp.com/api/webhooks/")
     }
     val isDirty = webhookText != state.webhookUrl
+    val webhookHealth = state.webhookHealthCache[state.webhookUrl]
 
     Scaffold(
         topBar = {
-            TopAppBar(title = { Text(stringResource(id = R.string.settings_title)) })
+            TopAppBar(
+                title = { Text(stringResource(id = R.string.settings_title)) },
+                colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+                )
+            )
         },
         snackbarHost = { SnackbarHost(hostState = snackbarHostState) }
     ) { padding ->
@@ -141,9 +185,7 @@ fun SettingsScreen(
 
             Divider()
 
-            // --- Webhook 表示・入力 ---
             if (!isEditing && state.webhookUrl.isNotBlank()) {
-                // 表示モード：マスク済みURL + コピー・クリア・編集ボタン
                 Text(text = stringResource(id = R.string.webhook_saved_section))
                 Text(
                     text = maskWebhookUrl(state.webhookUrl),
@@ -171,8 +213,12 @@ fun SettingsScreen(
                 Button(onClick = onTestSend) {
                     Text(text = stringResource(id = R.string.test_send))
                 }
+                if (state.webhookUrl.isNotBlank()) {
+                    TextButton(onClick = { onRecheckWebhook(state.webhookUrl) }) {
+                        Text("Webhookを再検証")
+                    }
+                }
             } else {
-                // 入力モード：テキストフィールド + ステータス + 保存ボタン
                 OutlinedTextField(
                     value = webhookText,
                     onValueChange = { webhookText = it },
@@ -227,9 +273,103 @@ fun SettingsScreen(
                 }
             }
 
+            if (webhookHealth != null) {
+                val successTime = formatEpochMillis(webhookHealth.lastDeliverySuccessAt, dateTimeFormatter)
+                Text(
+                    text = "状態: ${webhookHealth.effectiveState.label()} / 検証: ${webhookHealth.level.label()} (${webhookHealth.statusCode ?: "-"})",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = webhookHealth.effectiveState.color()
+                )
+                if (webhookHealth.message.isNotBlank()) {
+                    Text(
+                        text = "検証詳細: ${webhookHealth.message}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (webhookHealth.deliveryMessage.isNotBlank()) {
+                    Text(
+                        text = "送信詳細: ${webhookHealth.deliveryMessage}",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                if (successTime != null) {
+                    Text(
+                        text = "最終送信成功: $successTime",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
+
             Divider()
 
-            // 転送ON/OFF
+            Text(
+                text = "設定バックアップ",
+                style = MaterialTheme.typography.titleMedium
+            )
+            Text(
+                text = "自動バックアップは同一インストール内の復旧向け、手動バックアップは再インストール後の復元向けです。",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Text(
+                text = "自動保存先: Documents/Notify2Discord",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = onExportSettingsNow) {
+                    Text("今すぐバックアップ")
+                }
+                Button(
+                    onClick = onImportLatestBackup,
+                    colors = ButtonDefaults.outlinedButtonColors()
+                ) {
+                    Text("最新バックアップから復元")
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(
+                    onClick = {
+                        createBackupLauncher.launch(generateBackupFileName())
+                    },
+                    colors = ButtonDefaults.outlinedButtonColors()
+                ) {
+                    Text("バックアップをファイル保存")
+                }
+                Button(
+                    onClick = {
+                        importBackupLauncher.launch(arrayOf("application/json", "text/plain"))
+                    },
+                    colors = ButtonDefaults.outlinedButtonColors()
+                ) {
+                    Text("バックアップファイルから復元")
+                }
+            }
+            if (state.lastBackupAt != null) {
+                formatEpochMillis(state.lastBackupAt, dateTimeFormatter)?.let { timeText ->
+                    Text(
+                        text = "最終バックアップ: $timeText",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            if (state.lastManualBackupAt != null) {
+                formatEpochMillis(state.lastManualBackupAt, dateTimeFormatter)?.let { timeText ->
+                    Text(
+                        text = "最終手動バックアップ: $timeText",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Button(onClick = onOpenRules) {
+                Text("ルール設定を開く")
+            }
+
+            Divider()
+
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -244,7 +384,6 @@ fun SettingsScreen(
 
             Divider()
 
-            // テーマ選択
             Column {
                 Text(
                     text = "テーマ設定",
@@ -254,7 +393,7 @@ fun SettingsScreen(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    com.notify2discord.app.data.ThemeMode.values().forEach { mode ->
+                    ThemeMode.values().forEach { mode ->
                         val isSelected = state.themeMode == mode
                         Button(
                             onClick = { onSetThemeMode(mode) },
@@ -267,9 +406,9 @@ fun SettingsScreen(
                         ) {
                             Text(
                                 text = when (mode) {
-                                    com.notify2discord.app.data.ThemeMode.LIGHT -> "ライト"
-                                    com.notify2discord.app.data.ThemeMode.DARK -> "ダーク"
-                                    com.notify2discord.app.data.ThemeMode.SYSTEM -> "自動"
+                                    ThemeMode.LIGHT -> "ライト"
+                                    ThemeMode.DARK -> "ダーク"
+                                    ThemeMode.SYSTEM -> "自動"
                                 },
                                 style = MaterialTheme.typography.bodySmall
                             )
@@ -280,7 +419,6 @@ fun SettingsScreen(
 
             Divider()
 
-            // --- 履歴の保持期間 ---
             Column {
                 Text(
                     text = "履歴の保持期間",
@@ -329,7 +467,6 @@ fun SettingsScreen(
 
             Divider()
 
-            // --- リンク ---
             Text(
                 text = "リンク",
                 style = MaterialTheme.typography.titleMedium
@@ -341,7 +478,8 @@ fun SettingsScreen(
             )
             links.forEach { (label, url) ->
                 Row(
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
                         .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
                         .padding(vertical = 12.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -368,12 +506,48 @@ fun SettingsScreen(
                 modifier = Modifier.fillMaxWidth(),
                 textAlign = TextAlign.Center
             )
-
         }
+    }
+
+    if (showRestorePrompt) {
+        AlertDialog(
+            onDismissRequest = onDismissRestorePrompt,
+            title = { Text("設定を復元しますか？") },
+            text = {
+                Text("現在の設定が空のため、バックアップから復元できます。")
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    onDismissRestorePrompt()
+                    onImportLatestBackup()
+                }) {
+                    Text("最新バックアップから復元")
+                }
+            },
+            dismissButton = {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = {
+                        onDismissRestorePrompt()
+                        importBackupLauncher.launch(arrayOf("application/json", "text/plain"))
+                    }) {
+                        Text("バックアップファイルを選択")
+                    }
+                    if (hasInternalSnapshot) {
+                        TextButton(onClick = {
+                            onRestoreFromInternalSnapshot()
+                        }) {
+                            Text("内部スナップショット")
+                        }
+                    }
+                    TextButton(onClick = onDismissRestorePrompt) {
+                        Text("後で")
+                    }
+                }
+            }
+        )
     }
 }
 
-// 表示用にトークン部分をマスクする
 private fun maskWebhookUrl(url: String): String {
     if (url.isBlank()) return ""
     val marker = "/api/webhooks/"
@@ -387,4 +561,36 @@ private fun maskWebhookUrl(url: String): String {
         val tail = if (url.length > 6) url.takeLast(6) else ""
         "$head****$tail"
     }
+}
+
+private fun generateBackupFileName(): String {
+    val formatter = DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
+    val timestamp = LocalDateTime.now().format(formatter)
+    return "notify2discord_backup_${timestamp}.json"
+}
+
+private fun formatEpochMillis(
+    epochMillis: Long?,
+    formatter: DateTimeFormatter
+): String? {
+    return epochMillis?.let { millis ->
+        runCatching {
+            formatter.format(Instant.ofEpochMilli(millis).atZone(ZoneId.systemDefault()))
+        }.getOrNull()
+    }
+}
+
+private fun WebhookHealthLevel.label(): String {
+    return when (this) {
+        WebhookHealthLevel.OK -> "正常"
+        WebhookHealthLevel.WARNING -> "注意"
+        WebhookHealthLevel.ERROR -> "エラー"
+    }
+}
+
+@Composable
+private fun WebhookHealthLevel.color() = when (this) {
+    WebhookHealthLevel.OK -> MaterialTheme.colorScheme.primary
+    WebhookHealthLevel.WARNING -> MaterialTheme.colorScheme.tertiary
+    WebhookHealthLevel.ERROR -> MaterialTheme.colorScheme.error
 }

@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -20,8 +21,8 @@ android {
         applicationId = "com.notify2discord.app"
         minSdk = 34
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.1.0"
+        versionCode = 6
+        versionName = "1.1.4"
 
         vectorDrawables {
             useSupportLibrary = true
@@ -31,10 +32,6 @@ android {
     buildFeatures {
         compose = true
         buildConfig = true
-    }
-
-    composeOptions {
-        kotlinCompilerExtensionVersion = "1.5.10"
     }
 
     compileOptions {

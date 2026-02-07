@@ -8,6 +8,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.ExpandLess
+import androidx.compose.material.icons.filled.ExpandMore
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
@@ -39,7 +41,9 @@ fun SelectedAppsScreen(
     state: SettingsState,
     apps: List<AppInfo>,
     onToggleSelected: (String, Boolean) -> Unit,
-    onSetAppWebhook: (String, String) -> Unit
+    onSetAppWebhook: (String, String) -> Unit,
+    onSetAppTemplate: (String, String) -> Unit,
+    onOpenRules: () -> Unit
 ) {
     var selectedApp by remember { mutableStateOf<AppInfo?>(null) }
     var showWebhookDialog by remember { mutableStateOf(false) }
@@ -56,6 +60,12 @@ fun SelectedAppsScreen(
         topBar = {
             TopAppBar(
                 title = { Text("転送アプリとWebhook設定") },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    titleContentColor = MaterialTheme.colorScheme.onPrimary,
+                    navigationIconContentColor = MaterialTheme.colorScheme.onPrimary,
+                    actionIconContentColor = MaterialTheme.colorScheme.onPrimary
+                ),
                 actions = {
                     Box {
                         IconButton(onClick = { showSortMenu = true }) {
@@ -130,8 +140,11 @@ fun SelectedAppsScreen(
                         Text(
                             text = "個別Webhook: $appsWithCustomWebhook 個",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary
+                            color = MaterialTheme.colorScheme.onPrimaryContainer
                         )
+                    }
+                    TextButton(onClick = onOpenRules) {
+                        Text("ルーティング詳細はルール画面で編集")
                     }
                 }
             }
@@ -206,13 +219,15 @@ fun SelectedAppsScreen(
         WebhookConfigDialog(
             app = selectedApp!!,
             currentWebhook = state.appWebhooks[selectedApp!!.packageName] ?: "",
+            currentTemplate = state.appTemplates[selectedApp!!.packageName] ?: "",
             defaultWebhook = state.webhookUrl,
             onDismiss = {
                 showWebhookDialog = false
                 selectedApp = null
             },
-            onSave = { webhook ->
+            onSave = { webhook, template ->
                 onSetAppWebhook(selectedApp!!.packageName, webhook)
+                onSetAppTemplate(selectedApp!!.packageName, template)
                 showWebhookDialog = false
                 selectedApp = null
             }
@@ -234,7 +249,7 @@ private fun AppListItem(
             .padding(horizontal = 16.dp, vertical = 4.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (hasCustomWebhook)
-                MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.3f)
+                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
             else
                 MaterialTheme.colorScheme.surface
         )
@@ -280,7 +295,7 @@ private fun AppListItem(
                     Text(
                         text = "個別Webhook設定済み",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary
+                        color = MaterialTheme.colorScheme.primary
                     )
                 }
             }
@@ -290,7 +305,7 @@ private fun AppListItem(
                     imageVector = if (hasCustomWebhook) Icons.Default.Edit else Icons.Default.Add,
                     contentDescription = if (hasCustomWebhook) "Webhook編集" else "Webhook追加",
                     tint = if (hasCustomWebhook)
-                        MaterialTheme.colorScheme.secondary
+                        MaterialTheme.colorScheme.primary
                     else
                         MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -303,11 +318,15 @@ private fun AppListItem(
 private fun WebhookConfigDialog(
     app: AppInfo,
     currentWebhook: String,
+    currentTemplate: String,
     defaultWebhook: String,
     onDismiss: () -> Unit,
-    onSave: (String) -> Unit
+    onSave: (String, String) -> Unit
 ) {
     var webhookText by remember { mutableStateOf(currentWebhook) }
+    var templateText by remember { mutableStateOf(currentTemplate) }
+    var showWebhookDetails by remember { mutableStateOf(false) }
+    var showTemplateDetails by remember { mutableStateOf(false) }
 
     val isWebhookValid = remember(webhookText) {
         webhookText.isBlank() ||
@@ -340,19 +359,34 @@ private fun WebhookConfigDialog(
                         modifier = Modifier.padding(12.dp),
                         verticalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
-                        Text(
-                            text = "個別Webhook設定",
-                            style = MaterialTheme.typography.labelMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = "このアプリの通知を特定のWebhook URLに送信できます。",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                        Text(
-                            text = "• 空欄 → デフォルトのWebhookを使用\n• 入力 → このアプリ専用のWebhookを使用",
-                            style = MaterialTheme.typography.bodySmall
-                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "Webhook詳細",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            TextButton(onClick = { showWebhookDetails = !showWebhookDetails }) {
+                                Text(if (showWebhookDetails) "閉じる" else "開く")
+                                Icon(
+                                    imageVector = if (showWebhookDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null
+                                )
+                            }
+                        }
+                        if (showWebhookDetails) {
+                            Text(
+                                text = "このアプリの通知を特定のWebhook URLに送信できます。",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                text = "• 空欄 → デフォルトのWebhookを使用\n• 入力 → このアプリ専用のWebhookを使用",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                     }
                 }
 
@@ -369,7 +403,7 @@ private fun WebhookConfigDialog(
                         Text(
                             text = maskWebhookUrl(defaultWebhook),
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.secondary
+                            color = MaterialTheme.colorScheme.primary
                         )
                     }
                 }
@@ -386,18 +420,74 @@ private fun WebhookConfigDialog(
                         } else if (webhookText.isBlank()) {
                             Text("空欄でデフォルトを使用")
                         } else {
-                            Text("このアプリ専用のWebhookを使用", color = MaterialTheme.colorScheme.secondary)
+                            Text("このアプリ専用のWebhookを使用", color = MaterialTheme.colorScheme.primary)
                         }
                     },
                     modifier = Modifier.fillMaxWidth(),
                     singleLine = false,
                     maxLines = 3
                 )
+
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    )
+                ) {
+                    Column(
+                        modifier = Modifier.padding(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "テンプレート詳細",
+                                style = MaterialTheme.typography.labelMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            TextButton(onClick = { showTemplateDetails = !showTemplateDetails }) {
+                                Text(if (showTemplateDetails) "閉じる" else "開く")
+                                Icon(
+                                    imageVector = if (showTemplateDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                    contentDescription = null
+                                )
+                            }
+                        }
+                        if (showTemplateDetails) {
+                            Text(
+                                text = "未入力の場合は共通テンプレートを使用します。",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                            Text(
+                                text = "利用可能: {app} {title} {text} {time} {package}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                    }
+                }
+
+                OutlinedTextField(
+                    value = templateText,
+                    onValueChange = { templateText = it },
+                    label = { Text("アプリ別テンプレート（空欄で共通テンプレート）") },
+                    placeholder = {
+                        Text(
+                            "[アプリ] {app}\n[タイトル] {title}\n[本文] {text}"
+                        )
+                    },
+                    supportingText = {
+                        Text("未入力時は共通テンプレートを利用")
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    minLines = 3
+                )
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onSave(webhookText) },
+                onClick = { onSave(webhookText, templateText) },
                 enabled = isWebhookValid
             ) {
                 Text("保存")

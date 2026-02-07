@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
@@ -25,10 +26,13 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavDestination.Companion.hierarchy
 import com.notify2discord.app.ui.NotificationHistoryScreen
 import com.notify2discord.app.ui.SelectedAppsScreen
 import com.notify2discord.app.ui.SettingsScreen
 import com.notify2discord.app.ui.SettingsViewModel
+import com.notify2discord.app.ui.RulesScreen
 import com.notify2discord.app.ui.navigation.Screen
 import com.notify2discord.app.ui.theme.Notify2DiscordTheme
 
@@ -40,11 +44,13 @@ class MainActivity : ComponentActivity() {
             val state = viewModel.state.collectAsStateWithLifecycle()
             val apps = viewModel.apps.collectAsStateWithLifecycle()
             val history = viewModel.notificationHistory.collectAsStateWithLifecycle()
+            val operationMessage = viewModel.operationMessage.collectAsStateWithLifecycle()
+            val showRestorePrompt = viewModel.showRestorePrompt.collectAsStateWithLifecycle()
+            val hasInternalSnapshot = viewModel.hasInternalSnapshot.collectAsStateWithLifecycle()
 
             Notify2DiscordTheme(themeMode = state.value.themeMode) {
                 val navController = rememberNavController()
                 val currentBackStackEntry by navController.currentBackStackEntryAsState()
-                val currentDestination = currentBackStackEntry?.destination?.route
 
                 Scaffold(
                     bottomBar = {
@@ -52,13 +58,20 @@ class MainActivity : ComponentActivity() {
                             listOf(
                                 Triple(Screen.NotificationHistory, "履歴", Icons.Default.Notifications),
                                 Triple(Screen.SelectedApps, "転送アプリ", Icons.Default.Apps),
+                                Triple(Screen.Rules, "ルール", Icons.Default.Tune),
                                 Triple(Screen.Settings, "設定", Icons.Default.Settings)
                             ).forEach { (screen, label, icon) ->
                                 NavigationBarItem(
-                                    selected = currentDestination == screen.route,
+                                    selected = currentBackStackEntry
+                                        ?.destination
+                                        ?.hierarchy
+                                        ?.any { it.route == screen.route } == true,
                                     onClick = {
                                         navController.navigate(screen.route) {
-                                            popUpTo(Screen.NotificationHistory.route) { saveState = true }
+                                            // どのタブからでも状態を維持しつつ安定遷移させる
+                                            popUpTo(navController.graph.findStartDestination().id) {
+                                                saveState = true
+                                            }
                                             launchSingleTop = true
                                             restoreState = true
                                         }
@@ -78,7 +91,18 @@ class MainActivity : ComponentActivity() {
                         composable(Screen.Settings.route) {
                             SettingsScreen(
                                 state = state.value,
+                                operationMessage = operationMessage.value,
+                                showRestorePrompt = showRestorePrompt.value,
+                                hasInternalSnapshot = hasInternalSnapshot.value,
+                                onConsumeOperationMessage = viewModel::clearOperationMessage,
+                                onDismissRestorePrompt = viewModel::dismissRestorePrompt,
+                                onRestoreFromInternalSnapshot = viewModel::restoreFromInternalSnapshot,
+                                onExportSettingsNow = viewModel::exportSettingsNow,
+                                onImportLatestBackup = viewModel::importLatestBackup,
+                                onExportSettingsToPickedFile = viewModel::exportSettingsToPickedFile,
+                                onImportSettingsFromPickedFile = viewModel::importSettingsFromPickedFile,
                                 onSaveWebhook = viewModel::saveWebhookUrl,
+                                onRecheckWebhook = viewModel::recheckWebhook,
                                 onToggleForwarding = viewModel::setForwardingEnabled,
                                 onOpenNotificationAccess = {
                                     startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
@@ -91,6 +115,7 @@ class MainActivity : ComponentActivity() {
                                         startActivity(intent)
                                     }
                                 },
+                                onOpenRules = { navController.navigate(Screen.Rules.route) },
                                 onSetThemeMode = viewModel::setThemeMode,
                                 onSetRetentionDays = viewModel::setRetentionDays,
                                 onCleanupExpired = viewModel::cleanupExpiredRecords
@@ -102,7 +127,19 @@ class MainActivity : ComponentActivity() {
                                 state = state.value,
                                 apps = apps.value,
                                 onToggleSelected = viewModel::toggleSelected,
-                                onSetAppWebhook = viewModel::setAppWebhook
+                                onSetAppWebhook = viewModel::setAppWebhook,
+                                onSetAppTemplate = viewModel::saveAppTemplate,
+                                onOpenRules = { navController.navigate(Screen.Rules.route) }
+                            )
+                        }
+
+                        composable(Screen.Rules.route) {
+                            RulesScreen(
+                                state = state.value,
+                                onSaveDefaultTemplate = viewModel::saveDefaultTemplate,
+                                onSaveRuleConfig = viewModel::saveRuleConfig,
+                                onSaveRoutingRules = viewModel::saveRoutingRules,
+                                onSetRulesSimpleMode = viewModel::setRulesSimpleMode
                             )
                         }
 
