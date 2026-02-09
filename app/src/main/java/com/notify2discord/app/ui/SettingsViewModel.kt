@@ -39,6 +39,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     val notificationHistory: StateFlow<List<NotificationRecord>> = repository.notificationHistoryFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    val historyReadMarkers: StateFlow<Map<String, Long>> = repository.historyReadMarkersFlow
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
     private val _operationMessage = MutableStateFlow<String?>(null)
     val operationMessage: StateFlow<String?> = _operationMessage
 
@@ -247,6 +250,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun clearNotificationHistoryByApp(packageName: String) {
         viewModelScope.launch {
             repository.clearNotificationHistoryByApp(packageName)
+        }
+    }
+
+    fun clearNotificationHistoryByApps(packageNames: Set<String>) {
+        viewModelScope.launch {
+            repository.clearNotificationHistoryByApps(packageNames)
+        }
+    }
+
+    fun markAppHistoryRead(packageName: String, readUntilPostTime: Long) {
+        viewModelScope.launch {
+            repository.markAppHistoryRead(packageName, readUntilPostTime)
         }
     }
 

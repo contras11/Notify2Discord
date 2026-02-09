@@ -146,16 +146,13 @@ fun RulesScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
+            AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
                 Button(
                     onClick = {
                         isSimpleMode = true
                         onSetRulesSimpleMode(true)
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
                     colors = if (isSimpleMode) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
                 ) {
                     Text("初心者モード")
@@ -165,7 +162,7 @@ fun RulesScreen(
                         isSimpleMode = false
                         onSetRulesSimpleMode(false)
                     },
-                    modifier = Modifier.weight(1f),
+                    modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
                     colors = if (!isSimpleMode) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
                 ) {
                     Text("詳細モード")
@@ -548,31 +545,31 @@ private fun TimeRangeEditor(
     onEndHourChange: (String) -> Unit,
     onEndMinuteChange: (String) -> Unit
 ) {
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
         OutlinedTextField(
             value = startHour,
             onValueChange = onStartHourChange,
-            modifier = Modifier.weight(1f),
+            modifier = if (compact) Modifier.fillMaxWidth() else Modifier.fillMaxWidth(0.48f),
             label = { Text("開始時") }
         )
         OutlinedTextField(
             value = startMinute,
             onValueChange = onStartMinuteChange,
-            modifier = Modifier.weight(1f),
+            modifier = if (compact) Modifier.fillMaxWidth() else Modifier.fillMaxWidth(0.48f),
             label = { Text("開始分") }
         )
     }
-    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
         OutlinedTextField(
             value = endHour,
             onValueChange = onEndHourChange,
-            modifier = Modifier.weight(1f),
+            modifier = if (compact) Modifier.fillMaxWidth() else Modifier.fillMaxWidth(0.48f),
             label = { Text("終了時") }
         )
         OutlinedTextField(
             value = endMinute,
             onValueChange = onEndMinuteChange,
-            modifier = Modifier.weight(1f),
+            modifier = if (compact) Modifier.fillMaxWidth() else Modifier.fillMaxWidth(0.48f),
             label = { Text("終了分") }
         )
     }

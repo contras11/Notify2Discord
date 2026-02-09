@@ -4,11 +4,11 @@ package com.notify2discord.app.ui
 
 import android.graphics.Bitmap
 import android.graphics.Canvas
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -52,6 +52,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -74,6 +75,7 @@ private data class AppNotificationSummary(
     val packageName: String,
     val appName: String,
     val count: Int,
+    val unreadCount: Int,
     val latest: NotificationRecord
 )
 
@@ -111,17 +113,31 @@ private val bubbleShape = RoundedCornerShape(
 @Composable
 fun NotificationHistoryScreen(
     history: List<NotificationRecord>,
+    readMarkers: Map<String, Long>,
     onDeleteRecord: (Long) -> Unit,
     onDeleteRecords: (Set<Long>) -> Unit,
     onClearAll: () -> Unit,
-    onClearByApp: (String) -> Unit
+    onClearByApp: (String) -> Unit,
+    onClearByApps: (Set<String>) -> Unit,
+    onMarkAppAsRead: (String, Long) -> Unit
 ) {
-    var selectedAppPackage by remember { mutableStateOf<String?>(null) }
+    var selectedAppPackage by rememberSaveable { mutableStateOf<String?>(null) }
+
+    BackHandler(enabled = selectedAppPackage != null) {
+        selectedAppPackage = null
+    }
 
     if (selectedAppPackage != null) {
         val pkg = selectedAppPackage!!
         val appRecords = history.filter { it.packageName == pkg }
         val appName = appRecords.firstOrNull()?.appName ?: pkg
+        val latestPostTime = appRecords.maxOfOrNull { it.postTime }
+
+        LaunchedEffect(pkg, latestPostTime) {
+            if (latestPostTime != null) {
+                onMarkAppAsRead(pkg, latestPostTime)
+            }
+        }
 
         AppDetailScreen(
             packageName = pkg,
@@ -135,8 +151,9 @@ fun NotificationHistoryScreen(
     } else {
         AppListScreen(
             history = history,
+            readMarkers = readMarkers,
             onClearAll = onClearAll,
-            onClearByApp = onClearByApp,
+            onClearByApps = onClearByApps,
             onSelectApp = { selectedAppPackage = it }
         )
     }
@@ -179,31 +196,37 @@ private fun AppIcon(packageName: String, modifier: Modifier = Modifier) {
 @Composable
 private fun AppListScreen(
     history: List<NotificationRecord>,
+    readMarkers: Map<String, Long>,
     onClearAll: () -> Unit,
-    onClearByApp: (String) -> Unit,
+    onClearByApps: (Set<String>) -> Unit,
     onSelectApp: (String) -> Unit
 ) {
     var showClearConfirm by remember { mutableStateOf(false) }
-    var deleteConfirmApp by remember { mutableStateOf<AppNotificationSummary?>(null) }
-    var searchQuery by remember { mutableStateOf("") }
-    var rangeFilter by remember { mutableStateOf(HistoryRangeFilter.ALL) }
-    var sortOrder by remember { mutableStateOf(AppListSortOrder.LATEST) }
+    var selectedPackages by rememberSaveable { mutableStateOf(setOf<String>()) }
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
+    var pendingSelectionDelete by remember { mutableStateOf<Set<String>?>(null) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var rangeFilter by rememberSaveable { mutableStateOf(HistoryRangeFilter.ALL) }
+    var sortOrder by rememberSaveable { mutableStateOf(AppListSortOrder.LATEST) }
     var showRangeMenu by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
 
     val rangeFilteredRecords = remember(history, rangeFilter) {
         filterRecordsByRange(history, rangeFilter)
     }
-    val summaries = remember(rangeFilteredRecords, searchQuery, sortOrder) {
+    val summaries = remember(rangeFilteredRecords, searchQuery, sortOrder, readMarkers) {
         val query = searchQuery.trim()
         val source = rangeFilteredRecords
             .groupBy { it.packageName }
             .map { (pkg, records) ->
+                val latest = records.maxByOrNull { it.postTime } ?: records.first()
+                val readUntil = readMarkers[pkg] ?: 0L
                 AppNotificationSummary(
                     packageName = pkg,
                     appName = records.first().appName,
                     count = records.size,
-                    latest = records.maxByOrNull { it.postTime } ?: records.first()
+                    unreadCount = records.count { it.postTime > readUntil },
+                    latest = latest
                 )
             }
             .filter { summary ->
@@ -224,57 +247,97 @@ private fun AppListScreen(
         }
     }
 
+    LaunchedEffect(summaries) {
+        val visiblePackages = summaries.map { it.packageName }.toSet()
+        selectedPackages = selectedPackages.intersect(visiblePackages)
+        if (visiblePackages.isEmpty()) {
+            selectionMode = false
+        }
+    }
+
     Scaffold(
         topBar = {
-            TopAppBar(
-                title = { Text("通知履歴") },
-                colors = appBarColors(),
-                actions = {
-                    Box {
-                        IconButton(onClick = { showRangeMenu = true }) {
-                            Icon(Icons.Default.FilterList, "期間フィルタ")
+            if (selectionMode) {
+                TopAppBar(
+                    title = {
+                        if (selectedPackages.isEmpty()) {
+                            Text("選択モード")
+                        } else {
+                            Text("${selectedPackages.size}件 選択中")
                         }
-                        DropdownMenu(
-                            expanded = showRangeMenu,
-                            onDismissRequest = { showRangeMenu = false }
+                    },
+                    colors = appBarColors(),
+                    navigationIcon = {
+                        IconButton(onClick = {
+                            selectedPackages = emptySet()
+                            selectionMode = false
+                        }) {
+                            Icon(Icons.Default.Close, "選択キャンセル")
+                        }
+                    },
+                    actions = {
+                        IconButton(
+                            onClick = { pendingSelectionDelete = selectedPackages },
+                            enabled = selectedPackages.isNotEmpty()
                         ) {
-                            HistoryRangeFilter.values().forEach { filter ->
-                                DropdownMenuItem(
-                                    text = { Text(filter.label()) },
-                                    onClick = {
-                                        rangeFilter = filter
-                                        showRangeMenu = false
-                                    }
-                                )
+                            Icon(Icons.Default.Delete, "選択したアプリ履歴を削除")
+                        }
+                    }
+                )
+            } else {
+                TopAppBar(
+                    title = { Text("通知履歴") },
+                    colors = appBarColors(),
+                    actions = {
+                        Box {
+                            IconButton(onClick = { showRangeMenu = true }) {
+                                Icon(Icons.Default.FilterList, "期間フィルタ")
+                            }
+                            DropdownMenu(
+                                expanded = showRangeMenu,
+                                onDismissRequest = { showRangeMenu = false }
+                            ) {
+                                HistoryRangeFilter.values().forEach { filter ->
+                                    DropdownMenuItem(
+                                        text = { Text(filter.label()) },
+                                        onClick = {
+                                            rangeFilter = filter
+                                            showRangeMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        Box {
+                            IconButton(onClick = { showSortMenu = true }) {
+                                Icon(Icons.Default.Sort, "並び替え")
+                            }
+                            DropdownMenu(
+                                expanded = showSortMenu,
+                                onDismissRequest = { showSortMenu = false }
+                            ) {
+                                AppListSortOrder.values().forEach { order ->
+                                    DropdownMenuItem(
+                                        text = { Text(order.label()) },
+                                        onClick = {
+                                            sortOrder = order
+                                            showSortMenu = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                        if (summaries.isNotEmpty()) {
+                            TextButton(onClick = { selectionMode = true }) {
+                                Text("編集", color = MaterialTheme.colorScheme.onPrimary)
+                            }
+                            IconButton(onClick = { showClearConfirm = true }) {
+                                Icon(Icons.Default.Delete, "全削除")
                             }
                         }
                     }
-                    Box {
-                        IconButton(onClick = { showSortMenu = true }) {
-                            Icon(Icons.Default.Sort, "並び替え")
-                        }
-                        DropdownMenu(
-                            expanded = showSortMenu,
-                            onDismissRequest = { showSortMenu = false }
-                        ) {
-                            AppListSortOrder.values().forEach { order ->
-                                DropdownMenuItem(
-                                    text = { Text(order.label()) },
-                                    onClick = {
-                                        sortOrder = order
-                                        showSortMenu = false
-                                    }
-                                )
-                            }
-                        }
-                    }
-                    if (summaries.isNotEmpty()) {
-                        IconButton(onClick = { showClearConfirm = true }) {
-                            Icon(Icons.Default.Delete, "全削除")
-                        }
-                    }
-                }
-            )
+                )
+            }
         }
     ) { padding ->
         Column(
@@ -309,10 +372,38 @@ private fun AppListScreen(
                     modifier = Modifier.fillMaxSize()
                 ) {
                     items(summaries, key = { it.packageName }) { summary ->
+                        val isSelected = summary.packageName in selectedPackages
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable { onSelectApp(summary.packageName) }
+                                .background(
+                                    if (isSelected) {
+                                        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.35f)
+                                    } else {
+                                        MaterialTheme.colorScheme.surface
+                                    }
+                                )
+                                .combinedClickable(
+                                    onClick = {
+                                        if (selectionMode) {
+                                            selectedPackages = if (isSelected) {
+                                                selectedPackages - summary.packageName
+                                            } else {
+                                                selectedPackages + summary.packageName
+                                            }
+                                        } else {
+                                            onSelectApp(summary.packageName)
+                                        }
+                                    },
+                                    onLongClick = {
+                                        selectionMode = true
+                                        selectedPackages = if (isSelected) {
+                                            selectedPackages - summary.packageName
+                                        } else {
+                                            selectedPackages + summary.packageName
+                                        }
+                                    }
+                                )
                                 .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
@@ -321,7 +412,9 @@ private fun AppListScreen(
                                 modifier = Modifier.size(48.dp).clip(CircleShape)
                             )
                             Column(
-                                modifier = Modifier.weight(1f).padding(start = 12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .padding(start = 12.dp),
                                 verticalArrangement = Arrangement.spacedBy(2.dp)
                             ) {
                                 Text(
@@ -330,6 +423,7 @@ private fun AppListScreen(
                                     fontWeight = FontWeight.SemiBold
                                 )
                                 val preview = summary.latest.title.ifBlank { summary.latest.text }
+                                    .replace("\n", " ")
                                 if (preview.isNotBlank()) {
                                     Text(
                                         text = preview,
@@ -349,20 +443,16 @@ private fun AppListScreen(
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Badge { Text(text = summary.count.toString()) }
-                                    IconButton(
-                                        onClick = { deleteConfirmApp = summary },
-                                        modifier = Modifier.size(32.dp)
-                                    ) {
-                                        Icon(
-                                            Icons.Default.Delete,
-                                            contentDescription = "「${summary.appName}」の履歴を削除",
-                                            modifier = Modifier.size(18.dp),
-                                            tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
+                                if (summary.unreadCount > 0) {
+                                    Badge {
+                                        Text(text = summary.unreadCount.toString())
                                     }
                                 }
+                                Text(
+                                    text = "合計 ${summary.count}",
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                         Divider(
@@ -375,22 +465,24 @@ private fun AppListScreen(
         }
     }
 
-    if (deleteConfirmApp != null) {
-        val target = deleteConfirmApp!!
+    if (pendingSelectionDelete != null) {
+        val targetPackages = pendingSelectionDelete!!
         AlertDialog(
-            onDismissRequest = { deleteConfirmApp = null },
-            title = { Text("「${target.appName}」の履歴を削除するか？") },
-            text = { Text("${target.count}件の履歴を削除します。この操作は元に戻せません。") },
+            onDismissRequest = { pendingSelectionDelete = null },
+            title = { Text("選択した履歴を削除するか？") },
+            text = { Text("${targetPackages.size}個のアプリ履歴を削除します。この操作は元に戻せません。") },
             confirmButton = {
                 TextButton(onClick = {
-                    onClearByApp(target.packageName)
-                    deleteConfirmApp = null
+                    onClearByApps(targetPackages)
+                    selectedPackages = emptySet()
+                    selectionMode = false
+                    pendingSelectionDelete = null
                 }) {
                     Text("削除")
                 }
             },
             dismissButton = {
-                TextButton(onClick = { deleteConfirmApp = null }) {
+                TextButton(onClick = { pendingSelectionDelete = null }) {
                     Text("キャンセル")
                 }
             }
@@ -433,10 +525,11 @@ private fun AppDetailScreen(
     var recordToDelete by remember { mutableStateOf<NotificationRecord?>(null) }
     var showClearConfirm by remember { mutableStateOf(false) }
     var selectedIds by remember { mutableStateOf(setOf<Long>()) }
+    var selectionMode by rememberSaveable { mutableStateOf(false) }
     var pendingBatchDelete by remember { mutableStateOf<Set<Long>?>(null) }
-    var searchQuery by remember { mutableStateOf("") }
-    var rangeFilter by remember { mutableStateOf(HistoryRangeFilter.ALL) }
-    var sortOrder by remember { mutableStateOf(DetailSortOrder.NEWEST) }
+    var searchQuery by rememberSaveable { mutableStateOf("") }
+    var rangeFilter by rememberSaveable { mutableStateOf(HistoryRangeFilter.ALL) }
+    var sortOrder by rememberSaveable { mutableStateOf(DetailSortOrder.NEWEST) }
     var showRangeMenu by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
 
@@ -467,17 +560,29 @@ private fun AppDetailScreen(
 
     Scaffold(
         topBar = {
-            if (selectedIds.isNotEmpty()) {
+            if (selectionMode || selectedIds.isNotEmpty()) {
                 TopAppBar(
-                    title = { Text("${selectedIds.size}件 選択中") },
+                    title = {
+                        if (selectedIds.isEmpty()) {
+                            Text("選択モード")
+                        } else {
+                            Text("${selectedIds.size}件 選択中")
+                        }
+                    },
                     colors = appBarColors(),
                     navigationIcon = {
-                        IconButton(onClick = { selectedIds = emptySet() }) {
+                        IconButton(onClick = {
+                            selectedIds = emptySet()
+                            selectionMode = false
+                        }) {
                             Icon(Icons.Default.Close, "選択キャンセル")
                         }
                     },
                     actions = {
-                        IconButton(onClick = { pendingBatchDelete = selectedIds }) {
+                        IconButton(
+                            onClick = { pendingBatchDelete = selectedIds },
+                            enabled = selectedIds.isNotEmpty()
+                        ) {
                             Icon(Icons.Default.Delete, "選択した履歴を削除")
                         }
                     }
@@ -539,6 +644,9 @@ private fun AppDetailScreen(
                             }
                         }
                         if (records.isNotEmpty()) {
+                            TextButton(onClick = { selectionMode = true }) {
+                                Text("編集", color = MaterialTheme.colorScheme.onPrimary)
+                            }
                             IconButton(onClick = { showClearConfirm = true }) {
                                 Icon(Icons.Default.Delete, "このアプリの履歴を全削除")
                             }
@@ -609,18 +717,22 @@ private fun AppDetailScreen(
                                     shape = bubbleShape,
                                     color = MaterialTheme.colorScheme.surface,
                                     modifier = Modifier
-                                        .fillMaxWidth(0.85f)
+                                        .fillMaxWidth(0.9f)
                                         .combinedClickable(
                                             onDoubleClick = null,
                                             onClick = {
-                                                if (selectedIds.isNotEmpty()) {
-                                                    selectedIds = if (isSelected) selectedIds - record.id
-                                                    else selectedIds + record.id
+                                                if (selectionMode || selectedIds.isNotEmpty()) {
+                                                    selectedIds = if (isSelected) {
+                                                        selectedIds - record.id
+                                                    } else {
+                                                        selectedIds + record.id
+                                                    }
                                                 } else {
                                                     recordToDelete = record
                                                 }
                                             },
                                             onLongClick = {
+                                                selectionMode = true
                                                 selectedIds = selectedIds + record.id
                                             }
                                         )
@@ -698,6 +810,7 @@ private fun AppDetailScreen(
                 TextButton(onClick = {
                     onDeleteRecords(pendingBatchDelete!!)
                     selectedIds = emptySet()
+                    selectionMode = false
                     pendingBatchDelete = null
                 }) {
                     Text("削除")

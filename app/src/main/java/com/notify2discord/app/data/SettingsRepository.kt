@@ -36,6 +36,7 @@ class SettingsRepository(private val context: Context) {
     private val keyAppWebhooks = stringPreferencesKey("app_webhooks")
     private val keyThemeMode = stringPreferencesKey("theme_mode")
     private val keyNotificationHistory = stringPreferencesKey("notification_history")
+    private val keyHistoryReadMarkers = stringPreferencesKey("history_read_markers")
     private val keyRetentionDays = intPreferencesKey("retention_days")
 
     private val keyDefaultTemplate = stringPreferencesKey("default_template")
@@ -447,6 +448,10 @@ class SettingsRepository(private val context: Context) {
         deserializeNotificationHistory(prefs[keyNotificationHistory] ?: "")
     }
 
+    val historyReadMarkersFlow: Flow<Map<String, Long>> = dataStore.data.map { prefs ->
+        deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
+    }
+
     suspend fun saveNotificationRecord(record: NotificationRecord) {
         dataStore.edit { prefs ->
             val current = deserializeNotificationHistory(prefs[keyNotificationHistory] ?: "")
@@ -457,19 +462,29 @@ class SettingsRepository(private val context: Context) {
                 updated = updated.filter { it.postTime >= cutoff }
             }
             prefs[keyNotificationHistory] = serializeNotificationHistory(updated)
+            val markers = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
+            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
+                sanitizeHistoryReadMarkers(markers, updated)
+            )
         }
     }
 
     suspend fun deleteNotificationRecord(id: Long) {
         dataStore.edit { prefs ->
             val current = deserializeNotificationHistory(prefs[keyNotificationHistory] ?: "")
-            prefs[keyNotificationHistory] = serializeNotificationHistory(current.filter { it.id != id })
+            val updated = current.filter { it.id != id }
+            prefs[keyNotificationHistory] = serializeNotificationHistory(updated)
+            val markers = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
+            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
+                sanitizeHistoryReadMarkers(markers, updated)
+            )
         }
     }
 
     suspend fun clearNotificationHistory() {
         dataStore.edit { prefs ->
             prefs[keyNotificationHistory] = ""
+            prefs[keyHistoryReadMarkers] = ""
         }
     }
 
@@ -485,21 +500,75 @@ class SettingsRepository(private val context: Context) {
             if (retentionDays == -1) return@edit
             val cutoff = System.currentTimeMillis() - retentionDays.toLong() * 24 * 60 * 60 * 1000
             val current = deserializeNotificationHistory(prefs[keyNotificationHistory] ?: "")
-            prefs[keyNotificationHistory] = serializeNotificationHistory(current.filter { it.postTime >= cutoff })
+            val updated = current.filter { it.postTime >= cutoff }
+            prefs[keyNotificationHistory] = serializeNotificationHistory(updated)
+            val markers = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
+            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
+                sanitizeHistoryReadMarkers(markers, updated)
+            )
         }
     }
 
     suspend fun deleteNotificationRecords(ids: Set<Long>) {
         dataStore.edit { prefs ->
             val current = deserializeNotificationHistory(prefs[keyNotificationHistory] ?: "")
-            prefs[keyNotificationHistory] = serializeNotificationHistory(current.filter { it.id !in ids })
+            val updated = current.filter { it.id !in ids }
+            prefs[keyNotificationHistory] = serializeNotificationHistory(updated)
+            val markers = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
+            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
+                sanitizeHistoryReadMarkers(markers, updated)
+            )
         }
     }
 
     suspend fun clearNotificationHistoryByApp(packageName: String) {
         dataStore.edit { prefs ->
             val current = deserializeNotificationHistory(prefs[keyNotificationHistory] ?: "")
-            prefs[keyNotificationHistory] = serializeNotificationHistory(current.filter { it.packageName != packageName })
+            val updated = current.filter { it.packageName != packageName }
+            prefs[keyNotificationHistory] = serializeNotificationHistory(updated)
+            val markers = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
+            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
+                sanitizeHistoryReadMarkers(markers - packageName, updated)
+            )
+        }
+    }
+
+    suspend fun clearNotificationHistoryByApps(packageNames: Set<String>) {
+        if (packageNames.isEmpty()) return
+        dataStore.edit { prefs ->
+            val current = deserializeNotificationHistory(prefs[keyNotificationHistory] ?: "")
+            val updated = current.filter { it.packageName !in packageNames }
+            prefs[keyNotificationHistory] = serializeNotificationHistory(updated)
+            val markers = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
+            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
+                sanitizeHistoryReadMarkers(markers - packageNames, updated)
+            )
+        }
+    }
+
+    suspend fun markAppHistoryRead(packageName: String, readUntilPostTime: Long) {
+        if (packageName.isBlank() || readUntilPostTime <= 0L) return
+        dataStore.edit { prefs ->
+            val current = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
+            val previous = current[packageName] ?: 0L
+            val updated = current + (packageName to maxOf(previous, readUntilPostTime))
+            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(updated)
+        }
+    }
+
+    suspend fun clearHistoryReadMarker(packageName: String) {
+        if (packageName.isBlank()) return
+        dataStore.edit { prefs ->
+            val current = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
+            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(current - packageName)
+        }
+    }
+
+    suspend fun clearHistoryReadMarkers(packageNames: Set<String>) {
+        if (packageNames.isEmpty()) return
+        dataStore.edit { prefs ->
+            val current = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
+            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(current - packageNames)
         }
     }
 
@@ -1016,6 +1085,34 @@ class SettingsRepository(private val context: Context) {
         } catch (_: Exception) {
             emptyList()
         }
+    }
+
+    private fun serializeHistoryReadMarkers(markers: Map<String, Long>): String {
+        val obj = JSONObject()
+        markers.forEach { (packageName, readUntilPostTime) ->
+            obj.put(packageName, readUntilPostTime)
+        }
+        return obj.toString()
+    }
+
+    private fun deserializeHistoryReadMarkers(str: String): Map<String, Long> {
+        if (str.isBlank()) return emptyMap()
+        return runCatching {
+            val obj = JSONObject(str)
+            obj.keys().asSequence().associateWith { key ->
+                obj.optLong(key, 0L)
+            }.filterValues { it > 0L }
+        }.getOrElse { emptyMap() }
+    }
+
+    private fun sanitizeHistoryReadMarkers(
+        markers: Map<String, Long>,
+        records: List<NotificationRecord>
+    ): Map<String, Long> {
+        if (markers.isEmpty()) return emptyMap()
+        val existingPackages = records.asSequence().map { it.packageName }.toSet()
+        if (existingPackages.isEmpty()) return emptyMap()
+        return markers.filterKeys { it in existingPackages }
     }
 
     private fun jsonArrayToStringList(array: JSONArray?): List<String> {

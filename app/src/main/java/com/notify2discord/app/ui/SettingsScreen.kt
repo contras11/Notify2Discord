@@ -175,11 +175,17 @@ fun SettingsScreen(
                 text = stringResource(id = R.string.notification_access_help),
                 style = MaterialTheme.typography.bodyMedium
             )
-            Button(onClick = onOpenNotificationAccess) {
+            Button(
+                onClick = onOpenNotificationAccess,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text(text = stringResource(id = R.string.open_notification_access))
             }
 
-            Button(onClick = onRequestIgnoreBatteryOptimizations) {
+            Button(
+                onClick = onRequestIgnoreBatteryOptimizations,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text(text = "バッテリー最適化を無効にする")
             }
 
@@ -191,26 +197,32 @@ fun SettingsScreen(
                     text = maskWebhookUrl(state.webhookUrl),
                     style = MaterialTheme.typography.bodySmall
                 )
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                AdaptiveActionGroup(maxItemsInRow = 3) { compact ->
                     Button(onClick = {
                         clipboardManager.setText(AnnotatedString(state.webhookUrl))
                         scope.launch {
                             snackbarHostState.showSnackbar(copiedMessage)
                         }
-                    }) {
+                    }, modifier = if (compact) Modifier.fillMaxWidth() else Modifier) {
                         Text(text = stringResource(id = R.string.webhook_copy))
                     }
-                    Button(onClick = { requestSave("") }) {
+                    Button(
+                        onClick = { requestSave("") },
+                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                    ) {
                         Text(text = stringResource(id = R.string.webhook_clear))
                     }
-                    Button(onClick = { isEditing = true }) {
+                    Button(
+                        onClick = { isEditing = true },
+                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                    ) {
                         Text(text = stringResource(id = R.string.webhook_edit))
                     }
                 }
-                Button(onClick = onTestSend) {
+                Button(
+                    onClick = onTestSend,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
                     Text(text = stringResource(id = R.string.test_send))
                 }
                 if (state.webhookUrl.isNotBlank()) {
@@ -258,15 +270,18 @@ fun SettingsScreen(
                     )
                 }
 
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Button(onClick = { requestSave(webhookText) }) {
+                AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
+                    Button(
+                        onClick = { requestSave(webhookText) },
+                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                    ) {
                         Text(text = stringResource(id = R.string.webhook_save))
                     }
                     if (state.webhookUrl.isNotBlank()) {
-                        TextButton(onClick = { isEditing = false }) {
+                        TextButton(
+                            onClick = { isEditing = false },
+                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                        ) {
                             Text(text = "キャンセル")
                         }
                     }
@@ -316,22 +331,27 @@ fun SettingsScreen(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = onExportSettingsNow) {
+            AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
+                Button(
+                    onClick = onExportSettingsNow,
+                    modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                ) {
                     Text("今すぐバックアップ")
                 }
                 Button(
                     onClick = onImportLatestBackup,
+                    modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
                     colors = ButtonDefaults.outlinedButtonColors()
                 ) {
                     Text("最新バックアップから復元")
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
                 Button(
                     onClick = {
                         createBackupLauncher.launch(generateBackupFileName())
                     },
+                    modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
                     colors = ButtonDefaults.outlinedButtonColors()
                 ) {
                     Text("バックアップをファイル保存")
@@ -340,6 +360,7 @@ fun SettingsScreen(
                     onClick = {
                         importBackupLauncher.launch(arrayOf("application/json", "text/plain"))
                     },
+                    modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
                     colors = ButtonDefaults.outlinedButtonColors()
                 ) {
                     Text("バックアップファイルから復元")
@@ -364,7 +385,10 @@ fun SettingsScreen(
                 }
             }
 
-            Button(onClick = onOpenRules) {
+            Button(
+                onClick = onOpenRules,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Text("ルール設定を開く")
             }
 
@@ -389,15 +413,12 @@ fun SettingsScreen(
                     text = "テーマ設定",
                     style = MaterialTheme.typography.titleMedium
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+                AdaptiveActionGroup(maxItemsInRow = 3) { compact ->
                     ThemeMode.values().forEach { mode ->
                         val isSelected = state.themeMode == mode
                         Button(
                             onClick = { onSetThemeMode(mode) },
-                            modifier = Modifier.weight(1f),
+                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
                             colors = if (isSelected) {
                                 ButtonDefaults.buttonColors()
                             } else {
@@ -437,15 +458,12 @@ fun SettingsScreen(
                     90 to "3ヶ月",
                     -1 to "無制限"
                 )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
+                AdaptiveActionGroup(maxItemsInRow = 3, horizontalSpacing = 4.dp) { compact ->
                     retentionOptions.forEach { (days, label) ->
                         val isSelected = state.retentionDays == days
                         Button(
                             onClick = { onSetRetentionDays(days) },
-                            modifier = Modifier.weight(1f),
+                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
                             colors = if (isSelected) {
                                 ButtonDefaults.buttonColors()
                             } else {
@@ -459,6 +477,7 @@ fun SettingsScreen(
                 Spacer(modifier = Modifier.padding(top = 8.dp))
                 Button(
                     onClick = onCleanupExpired,
+                    modifier = Modifier.fillMaxWidth(),
                     colors = ButtonDefaults.outlinedButtonColors()
                 ) {
                     Text("古い履歴を今すぐ削除")
@@ -525,21 +544,25 @@ fun SettingsScreen(
                 }
             },
             dismissButton = {
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                AdaptiveActionGroup(maxItemsInRow = 3) { compact ->
                     TextButton(onClick = {
                         onDismissRestorePrompt()
                         importBackupLauncher.launch(arrayOf("application/json", "text/plain"))
-                    }) {
+                    }, modifier = if (compact) Modifier.fillMaxWidth() else Modifier) {
                         Text("バックアップファイルを選択")
                     }
                     if (hasInternalSnapshot) {
-                        TextButton(onClick = {
-                            onRestoreFromInternalSnapshot()
-                        }) {
+                        TextButton(
+                            onClick = { onRestoreFromInternalSnapshot() },
+                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                        ) {
                             Text("内部スナップショット")
                         }
                     }
-                    TextButton(onClick = onDismissRestorePrompt) {
+                    TextButton(
+                        onClick = onDismissRestorePrompt,
+                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                    ) {
                         Text("後で")
                     }
                 }

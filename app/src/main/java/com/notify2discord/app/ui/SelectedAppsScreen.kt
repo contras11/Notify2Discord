@@ -15,6 +15,7 @@ import androidx.compose.material.icons.filled.Sort
 import androidx.compose.material3.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.*
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -50,6 +51,7 @@ fun SelectedAppsScreen(
     var searchQuery by remember { mutableStateOf("") }
     var sortOrder by remember { mutableStateOf(AppSortOrder.NAME_ASC) }
     var showSortMenu by remember { mutableStateOf(false) }
+    var showUsageDetails by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
 
     LaunchedEffect(sortOrder) {
@@ -107,43 +109,78 @@ fun SelectedAppsScreen(
                     .fillMaxWidth()
                     .padding(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant
                 )
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text(
-                        text = "使い方",
-                        style = MaterialTheme.typography.titleSmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Text(
-                        text = "• チェックを入れると、そのアプリの通知を転送します\n• 何もチェックしていない場合は全アプリの通知を転送します\n• 右側のアイコンから、アプリごとに個別のWebhook URLを設定できます\n• 個別設定がない場合は、デフォルトのWebhookが使用されます",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                    )
-                    Divider(
-                        modifier = Modifier.padding(vertical = 4.dp),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.3f)
-                    )
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
                         Text(
-                            text = "転送中: ${state.selectedPackages.size} 個",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            text = "使い方",
+                            style = MaterialTheme.typography.titleSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
+                        TextButton(onClick = { showUsageDetails = !showUsageDetails }) {
+                            Text(if (showUsageDetails) "閉じる" else "開く")
+                            Icon(
+                                imageVector = if (showUsageDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                contentDescription = null
+                            )
+                        }
+                    }
+                    if (showUsageDetails) {
                         Text(
-                            text = "個別Webhook: $appsWithCustomWebhook 個",
+                            text = "• チェックを入れると、そのアプリの通知を転送します\n• 何もチェックしていない場合は全アプリの通知を転送します\n• 右側のアイコンから、アプリごとに個別のWebhook URLを設定できます\n• 個別設定がない場合は、デフォルトのWebhookが使用されます",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    } else {
+                        Text(
+                            text = "チェックしたアプリだけ転送できます。詳しい手順は「開く」から確認できます。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    TextButton(onClick = onOpenRules) {
+                    Divider(
+                        modifier = Modifier.padding(vertical = 4.dp),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                    )
+                    AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
+                        Surface(
+                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.surface
+                        ) {
+                            Text(
+                                text = "転送中: ${state.selectedPackages.size} 個",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                        Surface(
+                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
+                            shape = MaterialTheme.shapes.small,
+                            color = MaterialTheme.colorScheme.surface
+                        ) {
+                            Text(
+                                text = "個別Webhook: $appsWithCustomWebhook 個",
+                                style = MaterialTheme.typography.bodySmall,
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                    TextButton(
+                        onClick = onOpenRules,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         Text("ルーティング詳細はルール画面で編集")
                     }
                 }
@@ -249,7 +286,7 @@ private fun AppListItem(
             .padding(horizontal = 16.dp, vertical = 4.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (hasCustomWebhook)
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                MaterialTheme.colorScheme.surfaceVariant
             else
                 MaterialTheme.colorScheme.surface
         )
@@ -295,7 +332,7 @@ private fun AppListItem(
                     Text(
                         text = "個別Webhook設定済み",
                         style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.primary
+                        color = MaterialTheme.colorScheme.tertiary
                     )
                 }
             }
@@ -305,7 +342,7 @@ private fun AppListItem(
                     imageVector = if (hasCustomWebhook) Icons.Default.Edit else Icons.Default.Add,
                     contentDescription = if (hasCustomWebhook) "Webhook編集" else "Webhook追加",
                     tint = if (hasCustomWebhook)
-                        MaterialTheme.colorScheme.primary
+                        MaterialTheme.colorScheme.tertiary
                     else
                         MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -352,7 +389,7 @@ private fun WebhookConfigDialog(
             ) {
                 Card(
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        containerColor = MaterialTheme.colorScheme.surfaceVariant
                     )
                 ) {
                     Column(

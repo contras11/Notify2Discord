@@ -44,6 +44,7 @@ class MainActivity : ComponentActivity() {
             val state = viewModel.state.collectAsStateWithLifecycle()
             val apps = viewModel.apps.collectAsStateWithLifecycle()
             val history = viewModel.notificationHistory.collectAsStateWithLifecycle()
+            val historyReadMarkers = viewModel.historyReadMarkers.collectAsStateWithLifecycle()
             val operationMessage = viewModel.operationMessage.collectAsStateWithLifecycle()
             val showRestorePrompt = viewModel.showRestorePrompt.collectAsStateWithLifecycle()
             val hasInternalSnapshot = viewModel.hasInternalSnapshot.collectAsStateWithLifecycle()
@@ -146,10 +147,13 @@ class MainActivity : ComponentActivity() {
                         composable(Screen.NotificationHistory.route) {
                             NotificationHistoryScreen(
                                 history = history.value,
+                                readMarkers = historyReadMarkers.value,
                                 onDeleteRecord = viewModel::deleteNotificationRecord,
                                 onDeleteRecords = viewModel::deleteNotificationRecords,
                                 onClearAll = viewModel::clearNotificationHistory,
-                                onClearByApp = viewModel::clearNotificationHistoryByApp
+                                onClearByApp = viewModel::clearNotificationHistoryByApp,
+                                onClearByApps = viewModel::clearNotificationHistoryByApps,
+                                onMarkAppAsRead = viewModel::markAppHistoryRead
                             )
                         }
                     }

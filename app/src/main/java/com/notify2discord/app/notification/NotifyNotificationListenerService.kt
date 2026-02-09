@@ -4,6 +4,7 @@ import android.app.Notification
 import android.content.ComponentName
 import android.content.pm.LauncherApps
 import android.os.Build
+import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import com.notify2discord.app.data.NotificationRecord
@@ -56,8 +57,7 @@ class NotifyNotificationListenerService : NotificationListenerService() {
 
             val appName = resolveAppName(sbn.packageName)
             val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
-            val text = notification.extras.getCharSequence(Notification.EXTRA_TEXT)?.toString()
-                ?: notification.extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
+            val text = extractNotificationText(notification)
 
             val payload = NotificationPayload(
                 packageName = sbn.packageName,
@@ -112,5 +112,42 @@ class NotifyNotificationListenerService : NotificationListenerService() {
             // 仕事領域でも解決できない場合はパッケージ名で代替
         }
         return packageName
+    }
+
+    private fun extractNotificationText(notification: Notification): String {
+        val extras = notification.extras
+        val messaging = extractMessagingStyleText(extras)
+        if (messaging.isNotBlank()) return messaging
+
+        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
+        if (bigText.isNotBlank()) return bigText
+
+        val textLines = extras.getCharSequenceArray(Notification.EXTRA_TEXT_LINES)
+            ?.map { it?.toString().orEmpty().trim() }
+            ?.filter { it.isNotBlank() }
+            .orEmpty()
+        if (textLines.isNotEmpty()) return textLines.joinToString(separator = "\n")
+
+        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
+        if (text.isNotBlank()) return text
+
+        return extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString().orEmpty()
+    }
+
+    private fun extractMessagingStyleText(extras: Bundle): String {
+        val raw = extras.get(Notification.EXTRA_MESSAGES) as? Array<*> ?: return ""
+        val bundles = raw.mapNotNull { it as? Bundle }.toTypedArray()
+        if (bundles.isEmpty()) return ""
+
+        val lines = Notification.MessagingStyle.Message
+            .getMessagesFromBundleArray(bundles)
+            .mapNotNull { message ->
+                val body = message.text?.toString().orEmpty().trim()
+                if (body.isBlank()) return@mapNotNull null
+                val sender = message.senderPerson?.name?.toString()?.trim()
+                    ?: message.sender?.toString()?.trim().orEmpty()
+                if (sender.isBlank()) body else "$sender: $body"
+            }
+        return lines.joinToString(separator = "\n")
     }
 }

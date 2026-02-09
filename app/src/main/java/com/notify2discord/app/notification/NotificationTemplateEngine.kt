@@ -7,6 +7,7 @@ import java.util.Locale
 
 object NotificationTemplateEngine {
     private val dateFormatter = SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.JAPAN)
+    private const val CONTENT_LIMIT = 1900
 
     fun render(template: String, payload: NotificationPayload): String {
         val safeTitle = payload.title.ifBlank { "(タイトルなし)" }
@@ -23,10 +24,11 @@ object NotificationTemplateEngine {
 
     fun renderShortSummary(payload: NotificationPayload, aggregateCount: Int = 1): String {
         val title = payload.title.ifBlank { "(タイトルなし)" }
-        return if (aggregateCount > 1) {
-            "📬 ${payload.appName}: ${aggregateCount}件の通知（最新: ${title.take(40)}）"
+        val raw = if (aggregateCount > 1) {
+            "📬 ${payload.appName}: ${aggregateCount}件の通知（最新: $title）"
         } else {
-            "📩 ${payload.appName}: ${title.take(60)}"
+            "📩 ${payload.appName}: $title"
         }
+        return raw.take(CONTENT_LIMIT)
     }
 }

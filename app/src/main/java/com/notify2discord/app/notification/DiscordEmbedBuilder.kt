@@ -11,7 +11,8 @@ import java.util.Locale
 
 object DiscordEmbedBuilder {
     private val dateFormatter = SimpleDateFormat("yyyy/MM/dd HH:mm:ss", Locale.JAPAN)
-    private const val DESCRIPTION_LIMIT = 220
+    private const val DESCRIPTION_LIMIT = 4096
+    private const val EMBED_TOTAL_LIMIT = 6000
 
     fun build(
         payload: NotificationPayload,
@@ -21,9 +22,13 @@ object DiscordEmbedBuilder {
         val maxLen = config.maxFieldLength.coerceIn(200, 1000)
         val safeTitle = payload.title.ifBlank { "(タイトルなし)" }
         val safeText = payload.text.ifBlank { "(本文なし)" }
-        val preview = safeText.take(DESCRIPTION_LIMIT)
-        val description = buildDescription(preview, aggregateCount)
-        val remainder = safeText.drop(preview.length).trimStart()
+        val prefix = if (aggregateCount > 1) "直近 ${aggregateCount} 件を集約\n" else ""
+        val availableForDescription = (DESCRIPTION_LIMIT - prefix.length).coerceAtLeast(0)
+        val consumedLength = safeText.take(availableForDescription).length
+        val description = buildDescription(safeText, aggregateCount)
+        val remainder = safeText.drop(consumedLength).trimStart()
+        val title = safeTitle.take(256)
+        val footerText = "${Build.MODEL} • ${dateFormatter.format(Date(payload.postTime))}"
 
         val fields = mutableListOf<DiscordEmbedField>()
         fields += DiscordEmbedField(name = "アプリ", value = payload.appName, inline = true)
@@ -34,34 +39,42 @@ object DiscordEmbedBuilder {
                 inline = true
             )
         }
-        splitToFieldChunks(remainder, maxLen).forEachIndexed { index, part ->
-            fields += DiscordEmbedField(
-                name = "本文（続き ${index + 1}）",
-                value = part,
-                inline = false
-            )
-        }
-
         if (config.includePackageField) {
             fields += DiscordEmbedField(name = "パッケージ", value = payload.packageName, inline = false)
         }
 
+        var consumedChars = title.length + description.length + footerText.length
+        consumedChars += fields.sumOf { it.name.length + it.value.length }
+        splitToFieldChunks(remainder, maxLen).forEachIndexed { index, part ->
+            val fieldName = "本文（続き ${index + 1}）"
+            val remaining = EMBED_TOTAL_LIMIT - consumedChars - fieldName.length
+            if (remaining <= 0) return@forEachIndexed
+            val value = part.take(remaining)
+            if (value.isBlank()) return@forEachIndexed
+
+            fields += DiscordEmbedField(
+                name = fieldName,
+                value = value,
+                inline = false
+            )
+            consumedChars += fieldName.length + value.length
+        }
+
         return DiscordEmbedPayload(
-            title = safeTitle.take(256),
+            title = title,
             description = description,
             color = stableColor(payload.packageName),
             fields = fields,
-            footerText = "${Build.MODEL} • ${dateFormatter.format(Date(payload.postTime))}"
+            footerText = footerText
         )
     }
 
-    private fun buildDescription(preview: String, aggregateCount: Int): String {
-        val summary = preview.ifBlank { "(本文なし)" }
-        return if (aggregateCount > 1) {
-            "直近 ${aggregateCount} 件を集約\n$summary"
-        } else {
-            summary
-        }
+    private fun buildDescription(text: String, aggregateCount: Int): String {
+        val prefix = if (aggregateCount > 1) "直近 ${aggregateCount} 件を集約\n" else ""
+        val base = text.ifBlank { "(本文なし)" }
+        val available = (DESCRIPTION_LIMIT - prefix.length).coerceAtLeast(0)
+        val descriptionBody = base.take(available)
+        return "$prefix$descriptionBody"
     }
 
     private fun splitToFieldChunks(text: String, maxLen: Int): List<String> {
