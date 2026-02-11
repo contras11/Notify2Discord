@@ -21,8 +21,8 @@ android {
         applicationId = "com.notify2discord.app"
         minSdk = 34
         targetSdk = 34
-        versionCode = 11
-        versionName = "1.1.9"
+        versionCode = 13
+        versionName = "1.2.1"
 
         vectorDrawables {
             useSupportLibrary = true

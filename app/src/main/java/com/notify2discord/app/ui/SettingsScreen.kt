@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.OpenInNew
@@ -47,7 +46,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.notify2discord.app.BuildConfig
@@ -81,8 +79,7 @@ fun SettingsScreen(
     onOpenRules: () -> Unit,
     onSetThemeMode: (ThemeMode) -> Unit,
     onSetRetentionDays: (Int) -> Unit,
-    onCleanupExpired: () -> Unit,
-    onSaveBatteryReportConfig: (Boolean, Int) -> Unit
+    onCleanupExpired: () -> Unit
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
@@ -110,12 +107,6 @@ fun SettingsScreen(
     var pendingSaveMessage by remember { mutableStateOf<String?>(null) }
     var showWebhookHealthDetails by rememberSaveable { mutableStateOf(false) }
     var showExportOptionsDialog by rememberSaveable { mutableStateOf(false) }
-    var batteryReportEnabled by rememberSaveable(state.batteryReportConfig.enabled) {
-        mutableStateOf(state.batteryReportConfig.enabled)
-    }
-    var batteryIntervalText by rememberSaveable(state.batteryReportConfig.intervalMinutes) {
-        mutableStateOf(state.batteryReportConfig.intervalMinutes.toString())
-    }
 
     LaunchedEffect(state.webhookUrl) {
         if (webhookText != state.webhookUrl) {
@@ -123,10 +114,6 @@ fun SettingsScreen(
         }
         isEditing = state.webhookUrl.isBlank()
         showWebhookHealthDetails = false
-    }
-    LaunchedEffect(state.batteryReportConfig) {
-        batteryReportEnabled = state.batteryReportConfig.enabled
-        batteryIntervalText = state.batteryReportConfig.intervalMinutes.toString()
     }
 
     val savedMessage = stringResource(id = R.string.webhook_saved_message)
@@ -157,11 +144,6 @@ fun SettingsScreen(
     }
     val isDirty = webhookText != state.webhookUrl
     val webhookHealth = state.webhookHealthCache[state.webhookUrl]
-    val batteryInterval = batteryIntervalText.toIntOrNull()
-    val isBatteryIntervalValid = batteryInterval in 15..1440
-    val isBatteryDirty = batteryReportEnabled != state.batteryReportConfig.enabled ||
-        batteryIntervalText != state.batteryReportConfig.intervalMinutes.toString()
-    val canSaveBatteryConfig = !batteryReportEnabled || isBatteryIntervalValid
 
     Scaffold(
         topBar = {
@@ -431,76 +413,6 @@ fun SettingsScreen(
                     checked = state.forwardingEnabled,
                     onCheckedChange = onToggleForwarding
                 )
-            }
-
-            Divider()
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(
-                    text = stringResource(id = R.string.battery_report_section_title),
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = stringResource(id = R.string.battery_report_help),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(text = stringResource(id = R.string.battery_report_toggle))
-                    Switch(
-                        checked = batteryReportEnabled,
-                        onCheckedChange = { batteryReportEnabled = it }
-                    )
-                }
-                OutlinedTextField(
-                    value = batteryIntervalText,
-                    onValueChange = { batteryIntervalText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(id = R.string.battery_report_interval_label)) },
-                    singleLine = true,
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                    isError = batteryReportEnabled && !isBatteryIntervalValid
-                )
-                if (batteryReportEnabled && !isBatteryIntervalValid) {
-                    Text(
-                        text = stringResource(id = R.string.battery_report_interval_error),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.error
-                    )
-                } else {
-                    Text(
-                        text = stringResource(id = R.string.battery_report_interval_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
-                    Button(
-                        onClick = {
-                            val intervalToSave = batteryInterval ?: state.batteryReportConfig.intervalMinutes
-                            onSaveBatteryReportConfig(batteryReportEnabled, intervalToSave)
-                        },
-                        enabled = canSaveBatteryConfig,
-                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier
-                    ) {
-                        Text(stringResource(id = R.string.battery_report_save))
-                    }
-                    if (isBatteryDirty) {
-                        TextButton(
-                            onClick = {
-                                batteryReportEnabled = state.batteryReportConfig.enabled
-                                batteryIntervalText = state.batteryReportConfig.intervalMinutes.toString()
-                            },
-                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier
-                        ) {
-                            Text("変更を戻す")
-                        }
-                    }
-                }
             }
 
             Divider()

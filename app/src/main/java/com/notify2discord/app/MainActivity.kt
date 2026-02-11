@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Apps
+import androidx.compose.material.icons.filled.BatteryChargingFull
 import androidx.compose.material.icons.filled.Notifications
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Tune
@@ -24,6 +25,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation.compose.NavHost
@@ -33,6 +35,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.NavDestination.Companion.hierarchy
 import com.notify2discord.app.ui.NotificationHistoryScreen
+import com.notify2discord.app.ui.BatteryScreen
 import com.notify2discord.app.ui.SelectedAppsScreen
 import com.notify2discord.app.ui.SettingsScreen
 import com.notify2discord.app.ui.SettingsViewModel
@@ -49,6 +52,8 @@ class MainActivity : ComponentActivity() {
             val apps = viewModel.apps.collectAsStateWithLifecycle()
             val history = viewModel.notificationHistory.collectAsStateWithLifecycle()
             val historyReadMarkers = viewModel.historyReadMarkers.collectAsStateWithLifecycle()
+            val currentBatterySnapshot = viewModel.currentBatterySnapshot.collectAsStateWithLifecycle()
+            val batteryGraphRangeDays = viewModel.batteryGraphRangeDays.collectAsStateWithLifecycle()
             val operationMessage = viewModel.operationMessage.collectAsStateWithLifecycle()
             val showRestorePrompt = viewModel.showRestorePrompt.collectAsStateWithLifecycle()
             val hasInternalSnapshot = viewModel.hasInternalSnapshot.collectAsStateWithLifecycle()
@@ -72,6 +77,7 @@ class MainActivity : ComponentActivity() {
                                 Triple(Screen.NotificationHistory, "履歴", Icons.Default.Notifications),
                                 Triple(Screen.SelectedApps, "転送アプリ", Icons.Default.Apps),
                                 Triple(Screen.Rules, "ルール", Icons.Default.Tune),
+                                Triple(Screen.Battery, stringResource(id = R.string.battery_tab_label), Icons.Default.BatteryChargingFull),
                                 Triple(Screen.Settings, "設定", Icons.Default.Settings)
                             ).forEach { (screen, label, icon) ->
                                 NavigationBarItem(
@@ -128,8 +134,7 @@ class MainActivity : ComponentActivity() {
                                 onOpenRules = { navController.navigate(Screen.Rules.route) },
                                 onSetThemeMode = viewModel::setThemeMode,
                                 onSetRetentionDays = viewModel::setRetentionDays,
-                                onCleanupExpired = viewModel::cleanupExpiredRecords,
-                                onSaveBatteryReportConfig = viewModel::saveBatteryReportConfig
+                                onCleanupExpired = viewModel::cleanupExpiredRecords
                             )
                         }
 
@@ -150,6 +155,18 @@ class MainActivity : ComponentActivity() {
                                 onSaveRuleConfig = viewModel::saveRuleConfig,
                                 onSaveRoutingRules = viewModel::saveRoutingRules,
                                 onSetRulesSimpleMode = viewModel::setRulesSimpleMode
+                            )
+                        }
+
+                        composable(Screen.Battery.route) {
+                            BatteryScreen(
+                                state = state.value,
+                                currentSnapshot = currentBatterySnapshot.value,
+                                graphRangeDays = batteryGraphRangeDays.value,
+                                onRefreshBatteryInfo = viewModel::refreshBatteryInfo,
+                                onSaveBatteryReportConfig = viewModel::saveBatteryReportConfig,
+                                onSaveBatteryHistoryEnabled = viewModel::saveBatteryHistoryEnabled,
+                                onSetBatteryGraphRangeDays = viewModel::setBatteryGraphRangeDays
                             )
                         }
 

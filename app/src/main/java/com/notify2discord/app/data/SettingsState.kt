@@ -5,6 +5,30 @@ data class BatteryReportConfig(
     val intervalMinutes: Int = 60
 )
 
+data class BatteryHistoryConfig(
+    val enabled: Boolean = true,
+    val retentionDays: Int = 180,
+    val defaultRangeDays: Int = 30
+)
+
+data class BatterySnapshot(
+    val capturedAt: Long,
+    val levelPercent: Int?,
+    val status: Int?,
+    val health: Int?,
+    val isCharging: Boolean,
+    val temperatureC: Float?,
+    val voltageMv: Int?,
+    val technology: String,
+    val chargeCounterUah: Int?,
+    val currentNowUa: Int?,
+    val currentAverageUa: Int?,
+    val energyCounterNwh: Long?,
+    val cycleCount: Int?,
+    val estimatedFullChargeMah: Float?,
+    val estimatedHealthPercent: Float?
+)
+
 data class SettingsState(
     val webhookUrl: String = "",
     val forwardingEnabled: Boolean = true,
@@ -23,6 +47,8 @@ data class SettingsState(
     val webhookHealthCache: Map<String, WebhookHealthStatus> = emptyMap(),
     val pendingQuietQueue: List<PendingQuietItem> = emptyList(),
     val batteryReportConfig: BatteryReportConfig = BatteryReportConfig(),
+    val batteryHistoryConfig: BatteryHistoryConfig = BatteryHistoryConfig(),
+    val batteryHistory: List<BatterySnapshot> = emptyList(),
     val uiModeRulesSimple: Boolean = true,
     val lastBackupAt: Long? = null,
     val lastManualBackupAt: Long? = null,

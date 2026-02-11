@@ -25,6 +25,10 @@
     <string name="selected_apps_count">%d 個のアプリを転送中</string>
     <string name="notification_history_section">通知履歴</string>
     <string name="notification_history_button">履歴を見る</string>
+    <string name="battery_tab_label">バッテリー</string>
+    <string name="battery_data_unavailable">取得不可</string>
+    <string name="battery_estimated_value_note">推定値（端末により精度が異なる場合があります）</string>
+    <string name="battery_observed_value_note">アプリ観測値（端末公式値とは異なる場合があります）</string>
     <string name="battery_report_section_title">バッテリー残量の定期送信</string>
     <string name="battery_report_help">端末のバッテリー残量を、設定した間隔でDiscordへ送信します。</string>
     <string name="battery_report_toggle">定期送信を有効にする</string>

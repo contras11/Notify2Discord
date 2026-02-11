@@ -6,8 +6,11 @@ import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.notify2discord.app.battery.BatteryInfoCollector
 import com.notify2discord.app.data.AppInfo
+import com.notify2discord.app.data.BatteryHistoryConfig
 import com.notify2discord.app.data.BatteryReportConfig
+import com.notify2discord.app.data.BatterySnapshot
 import com.notify2discord.app.data.DedupeConfig
 import com.notify2discord.app.data.EmbedConfig
 import com.notify2discord.app.data.FilterConfig
@@ -20,6 +23,7 @@ import com.notify2discord.app.data.SettingsState
 import com.notify2discord.app.data.ThemeMode
 import com.notify2discord.app.data.WebhookHealthStatus
 import com.notify2discord.app.worker.AutoBackupScheduler
+import com.notify2discord.app.worker.BatterySnapshotScheduler
 import com.notify2discord.app.worker.BatteryStatusScheduler
 import com.notify2discord.app.worker.DiscordWebhookEnqueuer
 import kotlinx.coroutines.Dispatchers
@@ -34,6 +38,7 @@ import kotlinx.coroutines.launch
 
 class SettingsViewModel(application: Application) : AndroidViewModel(application) {
     private val repository = SettingsRepository(application)
+    private val batteryInfoCollector = BatteryInfoCollector(application)
 
     val state: StateFlow<SettingsState> = repository.settingsFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SettingsState())
@@ -46,6 +51,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
 
     val historyReadMarkers: StateFlow<Map<String, Long>> = repository.historyReadMarkersFlow
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
+
+    private val _currentBatterySnapshot = MutableStateFlow<BatterySnapshot?>(null)
+    val currentBatterySnapshot: StateFlow<BatterySnapshot?> = _currentBatterySnapshot
+
+    val batteryGraphRangeDays: StateFlow<Int> = state
+        .map { it.batteryHistoryConfig.defaultRangeDays }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), 30)
 
     private val _operationMessage = MutableStateFlow<String?>(null)
     val operationMessage: StateFlow<String?> = _operationMessage
@@ -60,7 +72,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         loadInstalledApps()
         checkRestorePrompt()
         cancelScheduledAutoBackup()
+        trimBatteryHistoryOnStartup()
         syncBatteryReportScheduler()
+        syncBatterySnapshotScheduler()
+        refreshBatteryInfo()
     }
 
     fun clearOperationMessage() {
@@ -277,6 +292,37 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun saveBatteryHistoryEnabled(enabled: Boolean) {
+        viewModelScope.launch {
+            val current = repository.getSettingsSnapshot().batteryHistoryConfig
+            repository.saveBatteryHistoryConfig(current.copy(enabled = enabled))
+            _operationMessage.value = if (enabled) {
+                "バッテリー履歴の収集を有効にしました"
+            } else {
+                "バッテリー履歴の収集を停止しました"
+            }
+        }
+    }
+
+    fun setBatteryGraphRangeDays(days: Int) {
+        viewModelScope.launch {
+            val normalized = when (days) {
+                7, 30, 90 -> days
+                else -> 30
+            }
+            val current = repository.getSettingsSnapshot().batteryHistoryConfig
+            repository.saveBatteryHistoryConfig(current.copy(defaultRangeDays = normalized))
+        }
+    }
+
+    fun refreshBatteryInfo() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val settings = repository.getSettingsSnapshot()
+            // 履歴の最大推定容量を参照して現在の推定劣化率を算出する
+            _currentBatterySnapshot.value = batteryInfoCollector.collect(settings.batteryHistory)
+        }
+    }
+
     private fun checkRestorePrompt() {
         viewModelScope.launch {
             val hasSettings = repository.hasAnyMeaningfulSettings()
@@ -291,6 +337,13 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         AutoBackupScheduler.cancel(getApplication())
     }
 
+    private fun trimBatteryHistoryOnStartup() {
+        viewModelScope.launch(Dispatchers.IO) {
+            val config = repository.getSettingsSnapshot().batteryHistoryConfig
+            repository.trimBatteryHistory(config.retentionDays)
+        }
+    }
+
     private fun syncBatteryReportScheduler() {
         viewModelScope.launch {
             repository.settingsFlow
@@ -301,6 +354,20 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                         context = getApplication(),
                         config = batteryConfig,
                         webhookUrl = webhookUrl
+                    )
+                }
+        }
+    }
+
+    private fun syncBatterySnapshotScheduler() {
+        viewModelScope.launch {
+            repository.settingsFlow
+                .map { settings -> settings.batteryHistoryConfig }
+                .distinctUntilChanged()
+                .collect { config: BatteryHistoryConfig ->
+                    BatterySnapshotScheduler.sync(
+                        context = getApplication(),
+                        config = config
                     )
                 }
         }

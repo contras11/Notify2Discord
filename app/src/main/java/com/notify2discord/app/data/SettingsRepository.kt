@@ -50,6 +50,8 @@ class SettingsRepository(private val context: Context) {
     private val keyWebhookHealthCache = stringPreferencesKey("webhook_health_cache")
     private val keyPendingQuietQueue = stringPreferencesKey("pending_quiet_queue")
     private val keyBatteryReportConfig = stringPreferencesKey("battery_report_config")
+    private val keyBatteryHistoryConfig = stringPreferencesKey("battery_history_config")
+    private val keyBatteryHistory = stringPreferencesKey("battery_history")
 
     private val keyUiModeRulesSimple = booleanPreferencesKey("ui_mode_rules_simple")
     private val keyLastBackupAt = longPreferencesKey("last_backup_at")
@@ -90,6 +92,8 @@ class SettingsRepository(private val context: Context) {
             webhookHealthCache = effectiveHealthCache,
             pendingQuietQueue = deserializePendingQuietQueue(prefs[keyPendingQuietQueue] ?: ""),
             batteryReportConfig = deserializeBatteryReportConfig(prefs[keyBatteryReportConfig] ?: ""),
+            batteryHistoryConfig = deserializeBatteryHistoryConfig(prefs[keyBatteryHistoryConfig] ?: ""),
+            batteryHistory = deserializeBatteryHistory(prefs[keyBatteryHistory] ?: ""),
             uiModeRulesSimple = prefs[keyUiModeRulesSimple] ?: true,
             lastBackupAt = prefs[keyLastBackupAt],
             lastManualBackupAt = prefs[keyLastManualBackupAt],
@@ -205,6 +209,36 @@ class SettingsRepository(private val context: Context) {
         )
         editSettings {
             this[keyBatteryReportConfig] = serializeBatteryReportConfig(normalized)
+        }
+    }
+
+    suspend fun saveBatteryHistoryConfig(config: BatteryHistoryConfig) {
+        val normalized = config.copy(
+            retentionDays = config.retentionDays.coerceIn(30, 365),
+            defaultRangeDays = config.defaultRangeDays.coerceIn(7, 90)
+        )
+        editSettings {
+            this[keyBatteryHistoryConfig] = serializeBatteryHistoryConfig(normalized)
+        }
+        trimBatteryHistory(normalized.retentionDays)
+    }
+
+    suspend fun appendBatterySnapshot(snapshot: BatterySnapshot) {
+        dataStore.edit { prefs ->
+            val retentionDays = deserializeBatteryHistoryConfig(
+                prefs[keyBatteryHistoryConfig] ?: ""
+            ).retentionDays
+            val current = deserializeBatteryHistory(prefs[keyBatteryHistory] ?: "")
+            val trimmed = trimSnapshotsByRetention(current + snapshot, retentionDays)
+            prefs[keyBatteryHistory] = serializeBatteryHistory(trimmed.takeLast(24 * 365))
+        }
+    }
+
+    suspend fun trimBatteryHistory(retentionDays: Int) {
+        dataStore.edit { prefs ->
+            val current = deserializeBatteryHistory(prefs[keyBatteryHistory] ?: "")
+            val trimmed = trimSnapshotsByRetention(current, retentionDays.coerceIn(30, 365))
+            prefs[keyBatteryHistory] = serializeBatteryHistory(trimmed)
         }
     }
 
@@ -663,6 +697,9 @@ class SettingsRepository(private val context: Context) {
                 prefs[keyBatteryReportConfig] = settings.optJSONObject("batteryReportConfig")
                     ?.toString()
                     ?: serializeBatteryReportConfig(BatteryReportConfig())
+                prefs[keyBatteryHistoryConfig] = settings.optJSONObject("batteryHistoryConfig")
+                    ?.toString()
+                    ?: serializeBatteryHistoryConfig(BatteryHistoryConfig())
 
                 prefs[keyUiModeRulesSimple] = settings.optBoolean("uiModeRulesSimple", true)
                 if (settings.has("lastBackupAt") && !settings.isNull("lastBackupAt")) {
@@ -705,6 +742,7 @@ class SettingsRepository(private val context: Context) {
             .put("webhookHealthCache", JSONArray(serializeWebhookHealthCache(settings.webhookHealthCache)))
             .put("pendingQuietQueue", JSONArray(serializePendingQuietQueue(settings.pendingQuietQueue)))
             .put("batteryReportConfig", JSONObject(serializeBatteryReportConfig(settings.batteryReportConfig)))
+            .put("batteryHistoryConfig", JSONObject(serializeBatteryHistoryConfig(settings.batteryHistoryConfig)))
             .put("uiModeRulesSimple", settings.uiModeRulesSimple)
             .put("lastBackupAt", settings.lastBackupAt)
             .put("lastManualBackupAt", settings.lastManualBackupAt)
@@ -944,6 +982,89 @@ class SettingsRepository(private val context: Context) {
                 intervalMinutes = obj.optInt("intervalMinutes", 60).coerceIn(15, 1440)
             )
         }.getOrDefault(BatteryReportConfig())
+    }
+
+    private fun serializeBatteryHistoryConfig(config: BatteryHistoryConfig): String {
+        return JSONObject()
+            .put("enabled", config.enabled)
+            .put("retentionDays", config.retentionDays.coerceIn(30, 365))
+            .put("defaultRangeDays", config.defaultRangeDays.coerceIn(7, 90))
+            .toString()
+    }
+
+    private fun deserializeBatteryHistoryConfig(str: String): BatteryHistoryConfig {
+        if (str.isBlank()) return BatteryHistoryConfig()
+        return runCatching {
+            val obj = JSONObject(str)
+            BatteryHistoryConfig(
+                enabled = obj.optBoolean("enabled", true),
+                retentionDays = obj.optInt("retentionDays", 180).coerceIn(30, 365),
+                defaultRangeDays = obj.optInt("defaultRangeDays", 30).coerceIn(7, 90)
+            )
+        }.getOrDefault(BatteryHistoryConfig())
+    }
+
+    private fun serializeBatteryHistory(history: List<BatterySnapshot>): String {
+        val array = JSONArray()
+        history.forEach { snapshot ->
+            array.put(
+                JSONObject()
+                    .put("capturedAt", snapshot.capturedAt)
+                    .put("levelPercent", snapshot.levelPercent)
+                    .put("status", snapshot.status)
+                    .put("health", snapshot.health)
+                    .put("isCharging", snapshot.isCharging)
+                    .put("temperatureC", snapshot.temperatureC)
+                    .put("voltageMv", snapshot.voltageMv)
+                    .put("technology", snapshot.technology)
+                    .put("chargeCounterUah", snapshot.chargeCounterUah)
+                    .put("currentNowUa", snapshot.currentNowUa)
+                    .put("currentAverageUa", snapshot.currentAverageUa)
+                    .put("energyCounterNwh", snapshot.energyCounterNwh)
+                    .put("cycleCount", snapshot.cycleCount)
+                    .put("estimatedFullChargeMah", snapshot.estimatedFullChargeMah)
+                    .put("estimatedHealthPercent", snapshot.estimatedHealthPercent)
+            )
+        }
+        return array.toString()
+    }
+
+    private fun deserializeBatteryHistory(str: String): List<BatterySnapshot> {
+        if (str.isBlank()) return emptyList()
+        return runCatching {
+            val array = JSONArray(str)
+            (0 until array.length()).mapNotNull { index ->
+                val obj = array.optJSONObject(index) ?: return@mapNotNull null
+                BatterySnapshot(
+                    capturedAt = obj.optLong("capturedAt"),
+                    levelPercent = if (obj.isNull("levelPercent")) null else obj.optInt("levelPercent"),
+                    status = if (obj.isNull("status")) null else obj.optInt("status"),
+                    health = if (obj.isNull("health")) null else obj.optInt("health"),
+                    isCharging = obj.optBoolean("isCharging", false),
+                    temperatureC = if (obj.isNull("temperatureC")) null else obj.optDouble("temperatureC").toFloat(),
+                    voltageMv = if (obj.isNull("voltageMv")) null else obj.optInt("voltageMv"),
+                    technology = obj.optString("technology"),
+                    chargeCounterUah = if (obj.isNull("chargeCounterUah")) null else obj.optInt("chargeCounterUah"),
+                    currentNowUa = if (obj.isNull("currentNowUa")) null else obj.optInt("currentNowUa"),
+                    currentAverageUa = if (obj.isNull("currentAverageUa")) null else obj.optInt("currentAverageUa"),
+                    energyCounterNwh = if (obj.isNull("energyCounterNwh")) null else obj.optLong("energyCounterNwh"),
+                    cycleCount = if (obj.isNull("cycleCount")) null else obj.optInt("cycleCount"),
+                    estimatedFullChargeMah = if (obj.isNull("estimatedFullChargeMah")) null else obj.optDouble("estimatedFullChargeMah").toFloat(),
+                    estimatedHealthPercent = if (obj.isNull("estimatedHealthPercent")) null else obj.optDouble("estimatedHealthPercent").toFloat()
+                )
+            }.filter { it.capturedAt > 0L }
+        }.getOrElse { emptyList() }
+    }
+
+    private fun trimSnapshotsByRetention(
+        snapshots: List<BatterySnapshot>,
+        retentionDays: Int
+    ): List<BatterySnapshot> {
+        if (snapshots.isEmpty()) return emptyList()
+        val cutoff = System.currentTimeMillis() - retentionDays.toLong() * 24 * 60 * 60 * 1000
+        return snapshots
+            .filter { it.capturedAt >= cutoff }
+            .sortedBy { it.capturedAt }
     }
 
     private fun serializeQuietHoursConfig(config: QuietHoursConfig): String {
