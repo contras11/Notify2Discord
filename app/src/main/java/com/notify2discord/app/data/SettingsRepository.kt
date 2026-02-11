@@ -367,7 +367,7 @@ class SettingsRepository(private val context: Context) {
         return applySnapshotJson(snapshot, replaceAll = true)
     }
 
-    suspend fun exportSettingsToDefaultFolder(autoBackup: Boolean = false): SettingsBackupResult {
+    suspend fun exportSettingsToDefaultFolder(): SettingsBackupResult {
         val settingsJson = buildSettingsSnapshotJson(getSettingsSnapshot())
         val envelope = backupManager.buildBackupEnvelope(settingsJson)
         val backupFile = backupManager.writeBackupFile(envelope).getOrElse { error ->
@@ -376,16 +376,13 @@ class SettingsRepository(private val context: Context) {
         pruneOldBackups(maxCount = 30)
 
         editSettings(refreshSnapshot = false) {
-            this[keyLastBackupAt] = System.currentTimeMillis()
+            val now = System.currentTimeMillis()
+            this[keyLastBackupAt] = now
+            this[keyLastManualBackupAt] = now
             this[keyBackupSchemaVersion] = SettingsState.BACKUP_SCHEMA_VERSION
         }
 
-        val resultMessage = if (autoBackup) {
-            "自動バックアップを更新しました"
-        } else {
-            "バックアップを保存しました: ${backupFile.name}"
-        }
-        return SettingsBackupResult(true, resultMessage)
+        return SettingsBackupResult(true, "バックアップを保存しました: ${backupFile.name}")
     }
 
     suspend fun exportSettingsToUri(uri: Uri): SettingsBackupResult {

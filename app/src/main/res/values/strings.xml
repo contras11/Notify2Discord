@@ -21,7 +21,7 @@
     <string name="webhook_invalid_help">URL 形式が正しくありません</string>
     <string name="notification_access_help">通知アクセスを有効にしないと転送できません</string>
     <string name="webhook_edit">編集</string>
-    <string name="selected_apps_section">転送アプリとWebhook設定</string>
+    <string name="selected_apps_section">転送アプリ設定</string>
     <string name="selected_apps_count">%d 個のアプリを転送中</string>
     <string name="notification_history_section">通知履歴</string>
     <string name="notification_history_button">履歴を見る</string>

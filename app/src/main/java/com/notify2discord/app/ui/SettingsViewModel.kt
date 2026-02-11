@@ -54,7 +54,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     init {
         loadInstalledApps()
         checkRestorePrompt()
-        scheduleAutoBackupIfNeeded()
+        cancelScheduledAutoBackup()
     }
 
     fun clearOperationMessage() {
@@ -170,17 +170,6 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun importLatestBackup() {
-        viewModelScope.launch {
-            val result = repository.importLatestSettingsFromDefaultFolder(replaceAll = true)
-            _operationMessage.value = result.message
-            if (result.success) {
-                _showRestorePrompt.value = false
-                _hasInternalSnapshot.value = repository.hasInternalSnapshotCandidate()
-            }
-        }
-    }
-
     fun exportSettingsToPickedFile(uri: Uri) {
         viewModelScope.launch {
             val result = repository.exportSettingsToUri(uri)
@@ -274,8 +263,9 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun scheduleAutoBackupIfNeeded() {
-        AutoBackupScheduler.schedule(getApplication())
+    private fun cancelScheduledAutoBackup() {
+        // 既存ユーザー端末で残っている定期バックアップ予約を停止する
+        AutoBackupScheduler.cancel(getApplication())
     }
 
     private fun loadInstalledApps() {

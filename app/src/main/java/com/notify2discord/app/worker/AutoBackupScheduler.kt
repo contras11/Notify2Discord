@@ -19,4 +19,8 @@ object AutoBackupScheduler {
             request
         )
     }
+
+    fun cancel(context: Context) {
+        WorkManager.getInstance(context).cancelUniqueWork(UNIQUE_WORK_NAME)
+    }
 }

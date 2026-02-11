@@ -17,8 +17,12 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -52,8 +56,16 @@ class MainActivity : ComponentActivity() {
             Notify2DiscordTheme(themeMode = state.value.themeMode) {
                 val navController = rememberNavController()
                 val currentBackStackEntry by navController.currentBackStackEntryAsState()
+                val globalSnackbarHostState = remember { SnackbarHostState() }
+
+                LaunchedEffect(operationMessage.value) {
+                    val message = operationMessage.value ?: return@LaunchedEffect
+                    globalSnackbarHostState.showSnackbar(message)
+                    viewModel.clearOperationMessage()
+                }
 
                 Scaffold(
+                    snackbarHost = { SnackbarHost(hostState = globalSnackbarHostState) },
                     bottomBar = {
                         NavigationBar {
                             listOf(
@@ -92,14 +104,11 @@ class MainActivity : ComponentActivity() {
                         composable(Screen.Settings.route) {
                             SettingsScreen(
                                 state = state.value,
-                                operationMessage = operationMessage.value,
                                 showRestorePrompt = showRestorePrompt.value,
                                 hasInternalSnapshot = hasInternalSnapshot.value,
-                                onConsumeOperationMessage = viewModel::clearOperationMessage,
                                 onDismissRestorePrompt = viewModel::dismissRestorePrompt,
                                 onRestoreFromInternalSnapshot = viewModel::restoreFromInternalSnapshot,
                                 onExportSettingsNow = viewModel::exportSettingsNow,
-                                onImportLatestBackup = viewModel::importLatestBackup,
                                 onExportSettingsToPickedFile = viewModel::exportSettingsToPickedFile,
                                 onImportSettingsFromPickedFile = viewModel::importSettingsFromPickedFile,
                                 onSaveWebhook = viewModel::saveWebhookUrl,
@@ -129,8 +138,7 @@ class MainActivity : ComponentActivity() {
                                 apps = apps.value,
                                 onToggleSelected = viewModel::toggleSelected,
                                 onSetAppWebhook = viewModel::setAppWebhook,
-                                onSetAppTemplate = viewModel::saveAppTemplate,
-                                onOpenRules = { navController.navigate(Screen.Rules.route) }
+                                onSetAppTemplate = viewModel::saveAppTemplate
                             )
                         }
 

@@ -18,6 +18,8 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.unit.dp
 import com.notify2discord.app.data.AppInfo
 import com.notify2discord.app.data.SettingsState
@@ -43,16 +45,18 @@ fun SelectedAppsScreen(
     apps: List<AppInfo>,
     onToggleSelected: (String, Boolean) -> Unit,
     onSetAppWebhook: (String, String) -> Unit,
-    onSetAppTemplate: (String, String) -> Unit,
-    onOpenRules: () -> Unit
+    onSetAppTemplate: (String, String) -> Unit
 ) {
     var selectedApp by remember { mutableStateOf<AppInfo?>(null) }
     var showWebhookDialog by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var sortOrder by remember { mutableStateOf(AppSortOrder.NAME_ASC) }
     var showSortMenu by remember { mutableStateOf(false) }
-    var showUsageDetails by rememberSaveable { mutableStateOf(false) }
+    var showUsageDialog by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
+    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
+    val headerCardColor = if (isDarkTheme) Color(0xFF143247) else Color(0xFFEAF6FF)
+    val headerTextColor = if (isDarkTheme) Color(0xFFD6EDFF) else MaterialTheme.colorScheme.onSurfaceVariant
 
     LaunchedEffect(sortOrder) {
         listState.scrollToItem(0)
@@ -61,7 +65,7 @@ fun SelectedAppsScreen(
     Scaffold(
         topBar = {
             TopAppBar(
-                title = { Text("転送アプリとWebhook設定") },
+                title = { Text("転送アプリ設定") },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = MaterialTheme.colorScheme.primary,
                     titleContentColor = MaterialTheme.colorScheme.onPrimary,
@@ -109,47 +113,17 @@ fun SelectedAppsScreen(
                     .fillMaxWidth()
                     .padding(16.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant
+                    containerColor = headerCardColor
                 )
             ) {
                 Column(
                     modifier = Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(
-                            text = "使い方",
-                            style = MaterialTheme.typography.titleSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        TextButton(onClick = { showUsageDetails = !showUsageDetails }) {
-                            Text(if (showUsageDetails) "閉じる" else "開く")
-                            Icon(
-                                imageVector = if (showUsageDetails) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                contentDescription = null
-                            )
-                        }
-                    }
-                    if (showUsageDetails) {
-                        Text(
-                            text = "• チェックを入れると、そのアプリの通知を転送します\n• 何もチェックしていない場合は全アプリの通知を転送します\n• 右側のアイコンから、アプリごとに個別のWebhook URLを設定できます\n• 個別設定がない場合は、デフォルトのWebhookが使用されます",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        Text(
-                            text = "チェックしたアプリだけ転送できます。詳しい手順は「開く」から確認できます。",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Divider(
-                        modifier = Modifier.padding(vertical = 4.dp),
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f)
+                    Text(
+                        text = "転送対象と個別Webhookをここで管理できます。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = headerTextColor
                     )
                     AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
                         Surface(
@@ -177,11 +151,20 @@ fun SelectedAppsScreen(
                             )
                         }
                     }
-                    TextButton(
-                        onClick = onOpenRules,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text("ルーティング詳細はルール画面で編集")
+                    AdaptiveActionGroup(maxItemsInRow = 2) { _ ->
+                        TextButton(
+                            onClick = { showUsageDialog = true }
+                        ) {
+                            Text("使い方など")
+                        }
+                        TextButton(
+                            onClick = {
+                                searchQuery = ""
+                                sortOrder = AppSortOrder.NAME_ASC
+                            }
+                        ) {
+                            Text("検索と並び順リセット")
+                        }
                     }
                 }
             }
@@ -249,6 +232,27 @@ fun SelectedAppsScreen(
                 }
             }
         }
+    }
+
+    if (showUsageDialog) {
+        AlertDialog(
+            onDismissRequest = { showUsageDialog = false },
+            title = { Text("使い方など") },
+            text = {
+                Text(
+                    text = "・チェックを入れたアプリだけ転送します\n" +
+                        "・何も選ばない場合は全アプリを転送します\n" +
+                        "・右端の追加/編集ボタンで個別Webhookを設定できます\n" +
+                        "・個別Webhookが未設定なら共通Webhookを使います",
+                    style = MaterialTheme.typography.bodySmall
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showUsageDialog = false }) {
+                    Text("閉じる")
+                }
+            }
+        )
     }
 
     // Webhook設定ダイアログ

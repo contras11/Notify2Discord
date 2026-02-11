@@ -13,7 +13,7 @@ class AutoBackupWorker(
 
     override suspend fun doWork(): Result {
         // 定期バックアップは失敗時に再試行し、成功時のみ完了扱いにする
-        val result = repository.exportSettingsToDefaultFolder(autoBackup = true)
+        val result = repository.exportSettingsToDefaultFolder()
         return if (result.success) {
             Result.success()
         } else {

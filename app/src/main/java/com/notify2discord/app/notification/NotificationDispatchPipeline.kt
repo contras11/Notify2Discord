@@ -133,12 +133,12 @@ class NotificationDispatchPipeline(
     }
 
     private fun resolveDestinations(settings: SettingsState, payload: NotificationPayload): Set<String> {
-        val destinations = linkedSetOf<String>()
-
+        // 個別Webhookが設定されている場合は、そのWebhookだけを送信先にする
         settings.appWebhooks[payload.packageName]
             ?.takeIf { it.isNotBlank() }
-            ?.let { destinations += it }
+            ?.let { return setOf(it) }
 
+        val destinations = linkedSetOf<String>()
         settings.webhookUrl
             .takeIf { it.isNotBlank() }
             ?.let { destinations += it }

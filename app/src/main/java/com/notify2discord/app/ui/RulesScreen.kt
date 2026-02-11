@@ -744,6 +744,9 @@ private fun resolveDedupePreset(config: DedupeConfig): DedupePreset {
     if (!config.enabled || (!config.contentHashEnabled && !config.titleLatestOnly)) {
         return DedupePreset.WEAK
     }
+    if (!config.titleLatestOnly || config.windowSeconds <= 20) {
+        return DedupePreset.WEAK
+    }
     return when {
         config.windowSeconds >= 120 -> DedupePreset.STRONG
         else -> DedupePreset.STANDARD

@@ -19,6 +19,8 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -61,14 +63,11 @@ import java.time.format.DateTimeFormatter
 @Composable
 fun SettingsScreen(
     state: SettingsState,
-    operationMessage: String?,
     showRestorePrompt: Boolean,
     hasInternalSnapshot: Boolean,
-    onConsumeOperationMessage: () -> Unit,
     onDismissRestorePrompt: () -> Unit,
     onRestoreFromInternalSnapshot: () -> Unit,
     onExportSettingsNow: () -> Unit,
-    onImportLatestBackup: () -> Unit,
     onExportSettingsToPickedFile: (Uri) -> Unit,
     onImportSettingsFromPickedFile: (Uri) -> Unit,
     onSaveWebhook: (String) -> Unit,
@@ -106,23 +105,20 @@ fun SettingsScreen(
     }
     var pendingSaveUrl by remember { mutableStateOf<String?>(null) }
     var pendingSaveMessage by remember { mutableStateOf<String?>(null) }
+    var showWebhookHealthDetails by rememberSaveable { mutableStateOf(false) }
+    var showExportOptionsDialog by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.webhookUrl) {
         if (webhookText != state.webhookUrl) {
             webhookText = state.webhookUrl
         }
         isEditing = state.webhookUrl.isBlank()
+        showWebhookHealthDetails = false
     }
 
     val savedMessage = stringResource(id = R.string.webhook_saved_message)
     val clearedMessage = stringResource(id = R.string.webhook_cleared_message)
     val copiedMessage = stringResource(id = R.string.webhook_copied_message)
-
-    LaunchedEffect(operationMessage) {
-        val message = operationMessage ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(message)
-        onConsumeOperationMessage()
-    }
 
     LaunchedEffect(state.webhookUrl, pendingSaveUrl) {
         val target = pendingSaveUrl ?: return@LaunchedEffect
@@ -169,7 +165,7 @@ fun SettingsScreen(
                 .verticalScroll(rememberScrollState())
                 .padding(padding)
                 .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
             Text(
                 text = stringResource(id = R.string.notification_access_help),
@@ -289,99 +285,112 @@ fun SettingsScreen(
             }
 
             if (webhookHealth != null) {
+                val checkedTime = formatEpochMillis(webhookHealth.checkedAt, dateTimeFormatter)
                 val successTime = formatEpochMillis(webhookHealth.lastDeliverySuccessAt, dateTimeFormatter)
                 Text(
-                    text = "状態: ${webhookHealth.effectiveState.label()} / 検証: ${webhookHealth.level.label()} (${webhookHealth.statusCode ?: "-"})",
+                    text = "Webhook状態: ${webhookHealth.effectiveState.label()} / 検証: ${webhookHealth.level.label()} (${webhookHealth.statusCode ?: "-"})",
                     style = MaterialTheme.typography.bodySmall,
                     color = webhookHealth.effectiveState.color()
                 )
-                if (webhookHealth.message.isNotBlank()) {
+                if (checkedTime != null) {
                     Text(
-                        text = "検証詳細: ${webhookHealth.message}",
-                        style = MaterialTheme.typography.bodySmall
+                        text = "最終検証: $checkedTime",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                 }
-                if (webhookHealth.deliveryMessage.isNotBlank()) {
-                    Text(
-                        text = "送信詳細: ${webhookHealth.deliveryMessage}",
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                val hasDetails = webhookHealth.message.isNotBlank() ||
+                    webhookHealth.deliveryMessage.isNotBlank() ||
+                    successTime != null
+                if (hasDetails) {
+                    TextButton(onClick = { showWebhookHealthDetails = !showWebhookHealthDetails }) {
+                        Text(if (showWebhookHealthDetails) "詳細を隠す" else "詳細を表示")
+                    }
                 }
-                if (successTime != null) {
-                    Text(
-                        text = "最終送信成功: $successTime",
-                        style = MaterialTheme.typography.bodySmall
-                    )
+                if (showWebhookHealthDetails) {
+                    if (webhookHealth.message.isNotBlank()) {
+                        Text(
+                            text = "検証詳細: ${webhookHealth.message}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    if (webhookHealth.deliveryMessage.isNotBlank()) {
+                        Text(
+                            text = "送信詳細: ${webhookHealth.deliveryMessage}",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
+                    if (successTime != null) {
+                        Text(
+                            text = "最終送信成功: $successTime",
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    }
                 }
             }
 
             Divider()
 
-            Text(
-                text = "設定バックアップ",
-                style = MaterialTheme.typography.titleMedium
-            )
-            Text(
-                text = "自動バックアップは同一インストール内の復旧向け、手動バックアップは再インストール後の復元向けです。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            Text(
-                text = "自動保存先: Documents/Notify2Discord",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
-                Button(
-                    onClick = onExportSettingsNow,
-                    modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Text("今すぐバックアップ")
-                }
-                Button(
-                    onClick = onImportLatestBackup,
-                    modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
-                    colors = ButtonDefaults.outlinedButtonColors()
-                ) {
-                    Text("最新バックアップから復元")
-                }
-            }
-            AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
-                Button(
-                    onClick = {
-                        createBackupLauncher.launch(generateBackupFileName())
-                    },
-                    modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
-                    colors = ButtonDefaults.outlinedButtonColors()
-                ) {
-                    Text("バックアップをファイル保存")
-                }
-                Button(
-                    onClick = {
-                        importBackupLauncher.launch(arrayOf("application/json", "text/plain"))
-                    },
-                    modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
-                    colors = ButtonDefaults.outlinedButtonColors()
-                ) {
-                    Text("バックアップファイルから復元")
-                }
-            }
-            if (state.lastBackupAt != null) {
-                formatEpochMillis(state.lastBackupAt, dateTimeFormatter)?.let { timeText ->
                     Text(
-                        text = "最終バックアップ: $timeText",
+                        text = "設定バックアップ",
+                        style = MaterialTheme.typography.titleMedium
+                    )
+                    Text(
+                        text = "手動で設定を保存・復元できます。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
-            }
-            if (state.lastManualBackupAt != null) {
-                formatEpochMillis(state.lastManualBackupAt, dateTimeFormatter)?.let { timeText ->
                     Text(
-                        text = "最終手動バックアップ: $timeText",
+                        text = "既定の保存先: Documents/Notify2Discord",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                    AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
+                        Button(
+                            onClick = { showExportOptionsDialog = true },
+                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                        ) {
+                            Text("エクスポート")
+                        }
+                        Button(
+                            onClick = {
+                                importBackupLauncher.launch(arrayOf("application/json", "text/plain"))
+                            },
+                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
+                            colors = ButtonDefaults.outlinedButtonColors()
+                        ) {
+                            Text("インポート")
+                        }
+                    }
+                    if (state.lastBackupAt != null) {
+                        formatEpochMillis(state.lastBackupAt, dateTimeFormatter)?.let { timeText ->
+                            Text(
+                                text = "最終バックアップ: $timeText",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    if (state.lastManualBackupAt != null) {
+                        formatEpochMillis(state.lastManualBackupAt, dateTimeFormatter)?.let { timeText ->
+                            Text(
+                                text = "最終手動バックアップ: $timeText",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
                 }
             }
 
@@ -528,6 +537,38 @@ fun SettingsScreen(
         }
     }
 
+    if (showExportOptionsDialog) {
+        AlertDialog(
+            onDismissRequest = { showExportOptionsDialog = false },
+            title = { Text("エクスポート方法") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text(
+                        text = "保存方法を選んでください。",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    TextButton(onClick = {
+                        showExportOptionsDialog = false
+                        onExportSettingsNow()
+                    }) {
+                        Text("既定フォルダに保存")
+                    }
+                    TextButton(onClick = {
+                        showExportOptionsDialog = false
+                        createBackupLauncher.launch(generateBackupFileName())
+                    }) {
+                        Text("保存先を選んで保存")
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showExportOptionsDialog = false }) {
+                    Text("閉じる")
+                }
+            }
+        )
+    }
+
     if (showRestorePrompt) {
         AlertDialog(
             onDismissRequest = onDismissRestorePrompt,
@@ -538,19 +579,13 @@ fun SettingsScreen(
             confirmButton = {
                 TextButton(onClick = {
                     onDismissRestorePrompt()
-                    onImportLatestBackup()
+                    importBackupLauncher.launch(arrayOf("application/json", "text/plain"))
                 }) {
-                    Text("最新バックアップから復元")
+                    Text("バックアップファイルを選択")
                 }
             },
             dismissButton = {
-                AdaptiveActionGroup(maxItemsInRow = 3) { compact ->
-                    TextButton(onClick = {
-                        onDismissRestorePrompt()
-                        importBackupLauncher.launch(arrayOf("application/json", "text/plain"))
-                    }, modifier = if (compact) Modifier.fillMaxWidth() else Modifier) {
-                        Text("バックアップファイルを選択")
-                    }
+                AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
                     if (hasInternalSnapshot) {
                         TextButton(
                             onClick = { onRestoreFromInternalSnapshot() },
