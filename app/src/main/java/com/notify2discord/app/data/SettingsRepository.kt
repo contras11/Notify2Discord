@@ -49,6 +49,7 @@ class SettingsRepository(private val context: Context) {
     private val keyRoutingRules = stringPreferencesKey("routing_rules")
     private val keyWebhookHealthCache = stringPreferencesKey("webhook_health_cache")
     private val keyPendingQuietQueue = stringPreferencesKey("pending_quiet_queue")
+    private val keyBatteryReportConfig = stringPreferencesKey("battery_report_config")
 
     private val keyUiModeRulesSimple = booleanPreferencesKey("ui_mode_rules_simple")
     private val keyLastBackupAt = longPreferencesKey("last_backup_at")
@@ -88,6 +89,7 @@ class SettingsRepository(private val context: Context) {
             routingRules = deserializeRoutingRules(prefs[keyRoutingRules] ?: ""),
             webhookHealthCache = effectiveHealthCache,
             pendingQuietQueue = deserializePendingQuietQueue(prefs[keyPendingQuietQueue] ?: ""),
+            batteryReportConfig = deserializeBatteryReportConfig(prefs[keyBatteryReportConfig] ?: ""),
             uiModeRulesSimple = prefs[keyUiModeRulesSimple] ?: true,
             lastBackupAt = prefs[keyLastBackupAt],
             lastManualBackupAt = prefs[keyLastManualBackupAt],
@@ -194,6 +196,15 @@ class SettingsRepository(private val context: Context) {
     suspend fun saveQuietQueue(items: List<PendingQuietItem>) {
         editSettings {
             this[keyPendingQuietQueue] = serializePendingQuietQueue(items)
+        }
+    }
+
+    suspend fun saveBatteryReportConfig(config: BatteryReportConfig) {
+        val normalized = config.copy(
+            intervalMinutes = config.intervalMinutes.coerceIn(15, 1440)
+        )
+        editSettings {
+            this[keyBatteryReportConfig] = serializeBatteryReportConfig(normalized)
         }
     }
 
@@ -649,6 +660,9 @@ class SettingsRepository(private val context: Context) {
                 prefs[keyPendingQuietQueue] = settings.optJSONArray("pendingQuietQueue")
                     ?.toString()
                     ?: "[]"
+                prefs[keyBatteryReportConfig] = settings.optJSONObject("batteryReportConfig")
+                    ?.toString()
+                    ?: serializeBatteryReportConfig(BatteryReportConfig())
 
                 prefs[keyUiModeRulesSimple] = settings.optBoolean("uiModeRulesSimple", true)
                 if (settings.has("lastBackupAt") && !settings.isNull("lastBackupAt")) {
@@ -690,6 +704,7 @@ class SettingsRepository(private val context: Context) {
             .put("routingRules", JSONArray(serializeRoutingRules(settings.routingRules)))
             .put("webhookHealthCache", JSONArray(serializeWebhookHealthCache(settings.webhookHealthCache)))
             .put("pendingQuietQueue", JSONArray(serializePendingQuietQueue(settings.pendingQuietQueue)))
+            .put("batteryReportConfig", JSONObject(serializeBatteryReportConfig(settings.batteryReportConfig)))
             .put("uiModeRulesSimple", settings.uiModeRulesSimple)
             .put("lastBackupAt", settings.lastBackupAt)
             .put("lastManualBackupAt", settings.lastManualBackupAt)
@@ -771,7 +786,7 @@ class SettingsRepository(private val context: Context) {
     }
 
     private fun SettingsState.notificationExists(): Boolean {
-        return pendingQuietQueue.isNotEmpty() || webhookHealthCache.isNotEmpty()
+        return pendingQuietQueue.isNotEmpty() || webhookHealthCache.isNotEmpty() || batteryReportConfig.enabled
     }
 
     private fun serializeAppWebhooks(map: Map<String, String>): String {
@@ -891,6 +906,7 @@ class SettingsRepository(private val context: Context) {
             .put("maxPerWindow", config.maxPerWindow)
             .put("windowSeconds", config.windowSeconds)
             .put("aggregateWindowSeconds", config.aggregateWindowSeconds)
+            .put("aggregationMode", config.aggregationMode.name)
             .toString()
     }
 
@@ -902,9 +918,32 @@ class SettingsRepository(private val context: Context) {
                 enabled = obj.optBoolean("enabled", true),
                 maxPerWindow = obj.optInt("maxPerWindow", 5),
                 windowSeconds = obj.optInt("windowSeconds", 30),
-                aggregateWindowSeconds = obj.optInt("aggregateWindowSeconds", 10)
+                aggregateWindowSeconds = obj.optInt("aggregateWindowSeconds", 10),
+                aggregationMode = runCatching {
+                    AggregationMode.valueOf(
+                        obj.optString("aggregationMode", AggregationMode.NORMAL.name)
+                    )
+                }.getOrDefault(AggregationMode.NORMAL)
             )
         }.getOrDefault(RateLimitConfig())
+    }
+
+    private fun serializeBatteryReportConfig(config: BatteryReportConfig): String {
+        return JSONObject()
+            .put("enabled", config.enabled)
+            .put("intervalMinutes", config.intervalMinutes.coerceIn(15, 1440))
+            .toString()
+    }
+
+    private fun deserializeBatteryReportConfig(str: String): BatteryReportConfig {
+        if (str.isBlank()) return BatteryReportConfig()
+        return runCatching {
+            val obj = JSONObject(str)
+            BatteryReportConfig(
+                enabled = obj.optBoolean("enabled", false),
+                intervalMinutes = obj.optInt("intervalMinutes", 60).coerceIn(15, 1440)
+            )
+        }.getOrDefault(BatteryReportConfig())
     }
 
     private fun serializeQuietHoursConfig(config: QuietHoursConfig): String {

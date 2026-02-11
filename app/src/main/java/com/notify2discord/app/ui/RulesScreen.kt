@@ -31,7 +31,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import com.notify2discord.app.R
 import com.notify2discord.app.data.DedupeConfig
 import com.notify2discord.app.data.EmbedConfig
 import com.notify2discord.app.data.FilterConfig
@@ -39,6 +41,7 @@ import com.notify2discord.app.data.QuietHoursConfig
 import com.notify2discord.app.data.RateLimitConfig
 import com.notify2discord.app.data.RoutingRule
 import com.notify2discord.app.data.SettingsState
+import com.notify2discord.app.data.AggregationMode
 import java.util.UUID
 
 private enum class SimpleFilterPreset {
@@ -92,6 +95,9 @@ fun RulesScreen(
     var rateMaxText by remember(state.rateLimitConfig.maxPerWindow) { mutableStateOf(state.rateLimitConfig.maxPerWindow.toString()) }
     var rateWindowText by remember(state.rateLimitConfig.windowSeconds) { mutableStateOf(state.rateLimitConfig.windowSeconds.toString()) }
     var aggregateWindowText by remember(state.rateLimitConfig.aggregateWindowSeconds) { mutableStateOf(state.rateLimitConfig.aggregateWindowSeconds.toString()) }
+    var aggregationMode by remember(state.rateLimitConfig.aggregationMode) {
+        mutableStateOf(state.rateLimitConfig.aggregationMode)
+    }
 
     var quietEnabled by remember(state.quietHoursConfig.enabled) { mutableStateOf(state.quietHoursConfig.enabled) }
     var quietStartHourText by remember(state.quietHoursConfig.startHour) { mutableStateOf(state.quietHoursConfig.startHour.toString()) }
@@ -284,6 +290,30 @@ fun RulesScreen(
             Divider()
 
             SectionTitle(title = "重複抑制 / 集約")
+            Text(
+                text = stringResource(id = R.string.aggregation_mode_label),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            PresetSelector(
+                options = listOf(
+                    stringResource(id = R.string.aggregation_mode_normal),
+                    stringResource(id = R.string.aggregation_mode_wake_delay_only),
+                    stringResource(id = R.string.aggregation_mode_always_separate)
+                ),
+                selectedIndex = when (aggregationMode) {
+                    AggregationMode.NORMAL -> 0
+                    AggregationMode.WAKE_DELAY_ONLY -> 1
+                    AggregationMode.ALWAYS_SEPARATE -> 2
+                },
+                onSelect = {
+                    aggregationMode = when (it) {
+                        1 -> AggregationMode.WAKE_DELAY_ONLY
+                        2 -> AggregationMode.ALWAYS_SEPARATE
+                        else -> AggregationMode.NORMAL
+                    }
+                }
+            )
             if (isSimpleMode) {
                 PresetSelector(
                     options = listOf("弱", "標準", "強"),
@@ -436,11 +466,13 @@ fun RulesScreen(
             val resolvedRateLimit = resolveRateLimitConfig(
                 isSimpleMode = isSimpleMode,
                 preset = dedupePreset,
+                aggregationMode = aggregationMode,
                 original = RateLimitConfig(
                     enabled = rateEnabled,
                     maxPerWindow = rateMaxText.toIntOrNull() ?: state.rateLimitConfig.maxPerWindow,
                     windowSeconds = rateWindowText.toIntOrNull() ?: state.rateLimitConfig.windowSeconds,
-                    aggregateWindowSeconds = aggregateWindowText.toIntOrNull() ?: state.rateLimitConfig.aggregateWindowSeconds
+                    aggregateWindowSeconds = aggregateWindowText.toIntOrNull() ?: state.rateLimitConfig.aggregateWindowSeconds,
+                    aggregationMode = aggregationMode
                 )
             )
             val resolvedQuiet = resolveQuietConfig(
@@ -823,14 +855,33 @@ private fun resolveDedupeConfig(
 private fun resolveRateLimitConfig(
     isSimpleMode: Boolean,
     preset: DedupePreset,
+    aggregationMode: AggregationMode,
     original: RateLimitConfig
 ): RateLimitConfig {
-    if (!isSimpleMode) return original
+    if (!isSimpleMode) return original.copy(aggregationMode = aggregationMode)
 
     return when (preset) {
-        DedupePreset.WEAK -> RateLimitConfig(enabled = true, maxPerWindow = 8, windowSeconds = 30, aggregateWindowSeconds = 5)
-        DedupePreset.STANDARD -> RateLimitConfig(enabled = true, maxPerWindow = 5, windowSeconds = 30, aggregateWindowSeconds = 10)
-        DedupePreset.STRONG -> RateLimitConfig(enabled = true, maxPerWindow = 3, windowSeconds = 30, aggregateWindowSeconds = 20)
+        DedupePreset.WEAK -> RateLimitConfig(
+            enabled = true,
+            maxPerWindow = 8,
+            windowSeconds = 30,
+            aggregateWindowSeconds = 5,
+            aggregationMode = aggregationMode
+        )
+        DedupePreset.STANDARD -> RateLimitConfig(
+            enabled = true,
+            maxPerWindow = 5,
+            windowSeconds = 30,
+            aggregateWindowSeconds = 10,
+            aggregationMode = aggregationMode
+        )
+        DedupePreset.STRONG -> RateLimitConfig(
+            enabled = true,
+            maxPerWindow = 3,
+            windowSeconds = 30,
+            aggregateWindowSeconds = 20,
+            aggregationMode = aggregationMode
+        )
     }
 }
 

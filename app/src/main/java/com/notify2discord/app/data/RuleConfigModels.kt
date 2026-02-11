@@ -24,11 +24,18 @@ data class DedupeConfig(
     val windowSeconds: Int = 45
 )
 
+enum class AggregationMode {
+    NORMAL,
+    WAKE_DELAY_ONLY,
+    ALWAYS_SEPARATE
+}
+
 data class RateLimitConfig(
     val enabled: Boolean = true,
     val maxPerWindow: Int = 5,
     val windowSeconds: Int = 30,
-    val aggregateWindowSeconds: Int = 10
+    val aggregateWindowSeconds: Int = 10,
+    val aggregationMode: AggregationMode = AggregationMode.NORMAL
 )
 
 data class QuietHoursConfig(

@@ -1,5 +1,10 @@
 package com.notify2discord.app.data
 
+data class BatteryReportConfig(
+    val enabled: Boolean = false,
+    val intervalMinutes: Int = 60
+)
+
 data class SettingsState(
     val webhookUrl: String = "",
     val forwardingEnabled: Boolean = true,
@@ -17,6 +22,7 @@ data class SettingsState(
     val routingRules: List<RoutingRule> = emptyList(),
     val webhookHealthCache: Map<String, WebhookHealthStatus> = emptyMap(),
     val pendingQuietQueue: List<PendingQuietItem> = emptyList(),
+    val batteryReportConfig: BatteryReportConfig = BatteryReportConfig(),
     val uiModeRulesSimple: Boolean = true,
     val lastBackupAt: Long? = null,
     val lastManualBackupAt: Long? = null,

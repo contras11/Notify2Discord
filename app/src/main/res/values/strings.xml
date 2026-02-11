@@ -25,4 +25,15 @@
     <string name="selected_apps_count">%d 個のアプリを転送中</string>
     <string name="notification_history_section">通知履歴</string>
     <string name="notification_history_button">履歴を見る</string>
+    <string name="battery_report_section_title">バッテリー残量の定期送信</string>
+    <string name="battery_report_help">端末のバッテリー残量を、設定した間隔でDiscordへ送信します。</string>
+    <string name="battery_report_toggle">定期送信を有効にする</string>
+    <string name="battery_report_interval_label">送信間隔（分）</string>
+    <string name="battery_report_interval_error">15〜1440分の範囲で入力してください。</string>
+    <string name="battery_report_interval_hint">最短15分で送信できます。例: 60分で1時間ごと。</string>
+    <string name="battery_report_save">バッテリー設定を保存</string>
+    <string name="aggregation_mode_label">通知のまとめ方</string>
+    <string name="aggregation_mode_normal">通常</string>
+    <string name="aggregation_mode_wake_delay_only">復帰直後のみ個別</string>
+    <string name="aggregation_mode_always_separate">常に個別</string>
 </resources>

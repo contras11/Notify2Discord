@@ -128,7 +128,8 @@ class MainActivity : ComponentActivity() {
                                 onOpenRules = { navController.navigate(Screen.Rules.route) },
                                 onSetThemeMode = viewModel::setThemeMode,
                                 onSetRetentionDays = viewModel::setRetentionDays,
-                                onCleanupExpired = viewModel::cleanupExpiredRecords
+                                onCleanupExpired = viewModel::cleanupExpiredRecords,
+                                onSaveBatteryReportConfig = viewModel::saveBatteryReportConfig
                             )
                         }
 

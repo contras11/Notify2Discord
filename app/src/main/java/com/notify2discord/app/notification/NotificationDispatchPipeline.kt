@@ -2,6 +2,7 @@ package com.notify2discord.app.notification
 
 import android.app.Notification
 import android.content.Context
+import com.notify2discord.app.data.AggregationMode
 import com.notify2discord.app.data.PendingQuietItem
 import com.notify2discord.app.data.QuietHoursConfig
 import com.notify2discord.app.data.RateLimitConfig
@@ -27,6 +28,10 @@ class NotificationDispatchPipeline(
         sourceNotification: Notification
     ): Boolean {
         val now = System.currentTimeMillis()
+        if (settings.rateLimitConfig.aggregationMode == AggregationMode.ALWAYS_SEPARATE) {
+            // 常時個別送信に切り替えた場合、過去の集約保持状態は破棄する
+            aggregateStateByApp.clear()
+        }
         val aggregateFlushes = flushExpiredAggregates(settings, now)
         aggregateFlushes.forEach { flush ->
             dispatch(
@@ -248,12 +253,28 @@ class NotificationDispatchPipeline(
         now: Long
     ): AggregateDecision {
         val config = settings.rateLimitConfig
+        val key = payload.packageName
+        when (config.aggregationMode) {
+            AggregationMode.ALWAYS_SEPARATE -> {
+                aggregateStateByApp.remove(key)
+                return AggregateDecision.SendNow
+            }
+            AggregationMode.WAKE_DELAY_ONLY -> {
+                if (now - payload.postTime >= WAKE_DELAY_THRESHOLD_MS) {
+                    // 復帰直後に一気に届いた通知は個別送信して可読性を維持する
+                    aggregateStateByApp.remove(key)
+                    return AggregateDecision.SendNow
+                }
+            }
+            AggregationMode.NORMAL -> Unit
+        }
+
         if (!config.enabled || config.aggregateWindowSeconds <= 0) {
+            aggregateStateByApp.remove(key)
             return AggregateDecision.SendNow
         }
 
         val windowMs = config.aggregateWindowSeconds.coerceAtLeast(1) * 1000L
-        val key = payload.packageName
         val state = aggregateStateByApp[key]
 
         if (state == null || now - state.windowStart > windowMs) {
@@ -426,6 +447,8 @@ class NotificationDispatchPipeline(
     )
 
     companion object {
+        private const val WAKE_DELAY_THRESHOLD_MS = 60_000L
+
         // 連投制御の状態を保持し、サービス再生成時の乱高下を抑える
         private val contentHashCache = ConcurrentHashMap<String, Pair<String, Long>>()
         private val titleCache = ConcurrentHashMap<String, Long>()

@@ -21,6 +21,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
@@ -61,6 +62,7 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -95,11 +97,6 @@ private enum class AppListSortOrder {
     LATEST,
     COUNT,
     APP_NAME
-}
-
-private enum class DetailSortOrder {
-    NEWEST,
-    OLDEST
 }
 
 private val bubbleShape = RoundedCornerShape(
@@ -529,13 +526,14 @@ private fun AppDetailScreen(
     var pendingBatchDelete by remember { mutableStateOf<Set<Long>?>(null) }
     var searchQuery by rememberSaveable { mutableStateOf("") }
     var rangeFilter by rememberSaveable { mutableStateOf(HistoryRangeFilter.ALL) }
-    var sortOrder by rememberSaveable { mutableStateOf(DetailSortOrder.NEWEST) }
     var showRangeMenu by remember { mutableStateOf(false) }
-    var showSortMenu by remember { mutableStateOf(false) }
+    val listState = rememberLazyListState()
+    val isWideScreen = LocalConfiguration.current.screenWidthDp >= 600
+    val bubbleWidthFraction = if (isWideScreen) 0.72f else 0.9f
 
-    val filteredRecords = remember(records, searchQuery, rangeFilter, sortOrder) {
+    val filteredRecords = remember(records, searchQuery, rangeFilter) {
         val byRange = filterRecordsByRange(records, rangeFilter)
-        val bySearch = byRange.filter { record ->
+        byRange.filter { record ->
             val query = searchQuery.trim()
             if (query.isBlank()) {
                 true
@@ -544,18 +542,20 @@ private fun AppDetailScreen(
                     record.text.contains(query, ignoreCase = true)
             }
         }
-        when (sortOrder) {
-            DetailSortOrder.NEWEST -> bySearch.sortedByDescending { it.postTime }
-            DetailSortOrder.OLDEST -> bySearch.sortedBy { it.postTime }
-        }
     }
-    val chatItems = remember(filteredRecords, sortOrder) {
-        buildChatItems(filteredRecords, newestFirst = sortOrder == DetailSortOrder.NEWEST)
+    val chatItems = remember(filteredRecords) {
+        buildChatItems(filteredRecords)
     }
 
     LaunchedEffect(filteredRecords) {
         val visibleIds = filteredRecords.map { it.id }.toSet()
         selectedIds = selectedIds.intersect(visibleIds)
+    }
+    LaunchedEffect(chatItems.size) {
+        if (chatItems.isNotEmpty()) {
+            // チャット画面は常に最新が下に来るため、初期表示を最下部へ合わせる
+            listState.scrollToItem(chatItems.lastIndex)
+        }
     }
 
     Scaffold(
@@ -624,25 +624,6 @@ private fun AppDetailScreen(
                                 }
                             }
                         }
-                        Box {
-                            IconButton(onClick = { showSortMenu = true }) {
-                                Icon(Icons.Default.Sort, "並び替え")
-                            }
-                            DropdownMenu(
-                                expanded = showSortMenu,
-                                onDismissRequest = { showSortMenu = false }
-                            ) {
-                                DetailSortOrder.values().forEach { order ->
-                                    DropdownMenuItem(
-                                        text = { Text(order.label()) },
-                                        onClick = {
-                                            sortOrder = order
-                                            showSortMenu = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
                         if (records.isNotEmpty()) {
                             TextButton(onClick = { selectionMode = true }) {
                                 Text("編集", color = MaterialTheme.colorScheme.onPrimary)
@@ -688,6 +669,7 @@ private fun AppDetailScreen(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(MaterialTheme.colorScheme.surfaceVariant),
+                    state = listState,
                     contentPadding = PaddingValues(vertical = 8.dp, horizontal = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
@@ -717,7 +699,7 @@ private fun AppDetailScreen(
                                     shape = bubbleShape,
                                     color = MaterialTheme.colorScheme.surface,
                                     modifier = Modifier
-                                        .fillMaxWidth(0.9f)
+                                        .fillMaxWidth(bubbleWidthFraction)
                                         .combinedClickable(
                                             onDoubleClick = null,
                                             onClick = {
@@ -873,11 +855,11 @@ private fun filterRecordsByRange(
     return records.filter { it.postTime >= start }
 }
 
-private fun buildChatItems(records: List<NotificationRecord>, newestFirst: Boolean): List<ChatItem> {
+private fun buildChatItems(records: List<NotificationRecord>): List<ChatItem> {
     val grouped = records.groupBy {
         Instant.ofEpochMilli(it.postTime).atZone(ZoneId.systemDefault()).toLocalDate()
     }
-    val sortedDates = if (newestFirst) grouped.keys.sortedDescending() else grouped.keys.sorted()
+    val sortedDates = grouped.keys.sorted()
     val items = mutableListOf<ChatItem>()
     val today = LocalDate.now()
     val yesterday = today.minusDays(1)
@@ -888,11 +870,7 @@ private fun buildChatItems(records: List<NotificationRecord>, newestFirst: Boole
             else -> date.format(DateTimeFormatter.ofPattern("M月d日"))
         }
         items += ChatItem.DateSeparator(label)
-        val dayRecords = if (newestFirst) {
-            grouped[date]!!.sortedByDescending { it.postTime }
-        } else {
-            grouped[date]!!.sortedBy { it.postTime }
-        }
+        val dayRecords = grouped[date]!!.sortedBy { it.postTime }
         dayRecords.forEach { items += ChatItem.Message(it) }
     }
     return items
@@ -928,9 +906,4 @@ private fun AppListSortOrder.label(): String = when (this) {
     AppListSortOrder.LATEST -> "最新順"
     AppListSortOrder.COUNT -> "件数順"
     AppListSortOrder.APP_NAME -> "アプリ名順"
-}
-
-private fun DetailSortOrder.label(): String = when (this) {
-    DetailSortOrder.NEWEST -> "新しい順"
-    DetailSortOrder.OLDEST -> "古い順"
 }

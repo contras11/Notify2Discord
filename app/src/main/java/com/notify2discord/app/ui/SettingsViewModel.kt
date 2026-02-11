@@ -7,6 +7,7 @@ import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.notify2discord.app.data.AppInfo
+import com.notify2discord.app.data.BatteryReportConfig
 import com.notify2discord.app.data.DedupeConfig
 import com.notify2discord.app.data.EmbedConfig
 import com.notify2discord.app.data.FilterConfig
@@ -19,8 +20,12 @@ import com.notify2discord.app.data.SettingsState
 import com.notify2discord.app.data.ThemeMode
 import com.notify2discord.app.data.WebhookHealthStatus
 import com.notify2discord.app.worker.AutoBackupScheduler
+import com.notify2discord.app.worker.BatteryStatusScheduler
 import com.notify2discord.app.worker.DiscordWebhookEnqueuer
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -55,6 +60,7 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         loadInstalledApps()
         checkRestorePrompt()
         cancelScheduledAutoBackup()
+        syncBatteryReportScheduler()
     }
 
     fun clearOperationMessage() {
@@ -254,6 +260,23 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun saveBatteryReportConfig(enabled: Boolean, intervalMinutes: Int) {
+        viewModelScope.launch {
+            val normalized = intervalMinutes.coerceIn(15, 1440)
+            repository.saveBatteryReportConfig(
+                BatteryReportConfig(
+                    enabled = enabled,
+                    intervalMinutes = normalized
+                )
+            )
+            _operationMessage.value = if (enabled) {
+                "バッテリー残量の定期送信を保存しました"
+            } else {
+                "バッテリー残量の定期送信を停止しました"
+            }
+        }
+    }
+
     private fun checkRestorePrompt() {
         viewModelScope.launch {
             val hasSettings = repository.hasAnyMeaningfulSettings()
@@ -266,6 +289,21 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     private fun cancelScheduledAutoBackup() {
         // 既存ユーザー端末で残っている定期バックアップ予約を停止する
         AutoBackupScheduler.cancel(getApplication())
+    }
+
+    private fun syncBatteryReportScheduler() {
+        viewModelScope.launch {
+            repository.settingsFlow
+                .map { settings -> settings.batteryReportConfig to settings.webhookUrl }
+                .distinctUntilChanged()
+                .collect { (batteryConfig, webhookUrl) ->
+                    BatteryStatusScheduler.sync(
+                        context = getApplication(),
+                        config = batteryConfig,
+                        webhookUrl = webhookUrl
+                    )
+                }
+        }
     }
 
     private fun loadInstalledApps() {
