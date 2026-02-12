@@ -14,6 +14,8 @@
     <string name="webhook_cleared_message">Webhook を削除しました</string>
     <string name="webhook_copied_message">Webhook をコピーしました</string>
     <string name="forwarding_toggle">通知の転送を有効にする</string>
+    <string name="capture_unsent_history_toggle">転送しない通知もアプリ内履歴に保存</string>
+    <string name="capture_unsent_history_hint">有効にした場合、「転送アプリ設定」の履歴対象で選んだアプリのみ保存します。</string>
     <string name="open_notification_access">通知アクセス設定を開く</string>
     <string name="test_send">テスト送信</string>
     <string name="excluded_section">除外アプリ一覧</string>
@@ -29,12 +31,17 @@
     <string name="battery_data_unavailable">取得不可</string>
     <string name="battery_estimated_value_note">推定値（端末により精度が異なる場合があります）</string>
     <string name="battery_observed_value_note">アプリ観測値（端末公式値とは異なる場合があります）</string>
+    <string name="battery_graph_range_help">7/30/90日は、グラフに表示する直近の履歴日数です。</string>
     <string name="battery_report_section_title">バッテリー残量の定期送信</string>
     <string name="battery_report_help">端末のバッテリー残量を、設定した間隔でDiscordへ送信します。</string>
     <string name="battery_report_toggle">定期送信を有効にする</string>
     <string name="battery_report_interval_label">送信間隔（分）</string>
     <string name="battery_report_interval_error">15〜1440分の範囲で入力してください。</string>
     <string name="battery_report_interval_hint">最短15分で送信できます。例: 60分で1時間ごと。</string>
+    <string name="battery_report_start_hour_label">開始時刻（時）</string>
+    <string name="battery_report_start_minute_label">開始時刻（分）</string>
+    <string name="battery_report_start_time_error">開始時刻は 0〜23時 / 0〜59分 で入力してください。</string>
+    <string name="battery_report_start_time_hint">指定時刻を起点に送信します。OS都合で数分遅れる場合があります。</string>
     <string name="battery_report_save">バッテリー設定を保存</string>
     <string name="aggregation_mode_label">通知のまとめ方</string>
     <string name="aggregation_mode_normal">通常</string>

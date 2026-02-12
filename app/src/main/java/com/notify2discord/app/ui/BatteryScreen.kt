@@ -9,18 +9,20 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -49,9 +51,10 @@ fun BatteryScreen(
     currentSnapshot: BatterySnapshot?,
     graphRangeDays: Int,
     onRefreshBatteryInfo: () -> Unit,
-    onSaveBatteryReportConfig: (Boolean, Int) -> Unit,
+    onSaveBatteryReportConfig: (Boolean, Int, Int, Int) -> Unit,
     onSaveBatteryHistoryEnabled: (Boolean) -> Unit,
-    onSetBatteryGraphRangeDays: (Int) -> Unit
+    onSetBatteryGraphRangeDays: (Int) -> Unit,
+    onSaveBatteryNominalCapacity: (Float?) -> Unit
 ) {
     LaunchedEffect(Unit) {
         onRefreshBatteryInfo()
@@ -63,9 +66,26 @@ fun BatteryScreen(
     var intervalText by rememberSaveable(state.batteryReportConfig.intervalMinutes) {
         mutableStateOf(state.batteryReportConfig.intervalMinutes.toString())
     }
+    var startHourText by rememberSaveable(state.batteryReportConfig.startHour) {
+        mutableStateOf(state.batteryReportConfig.startHour.toString())
+    }
+    var startMinuteText by rememberSaveable(state.batteryReportConfig.startMinute) {
+        mutableStateOf("%02d".format(state.batteryReportConfig.startMinute))
+    }
+    var nominalCapacityText by rememberSaveable(state.batteryNominalCapacityMah) {
+        mutableStateOf(state.batteryNominalCapacityMah?.let { "%.0f".format(it) }.orEmpty())
+    }
 
     val intervalMinutes = intervalText.toIntOrNull()
     val isIntervalValid = intervalMinutes in 15..1440
+    val startHour = startHourText.toIntOrNull()
+    val isStartHourValid = startHour in 0..23
+    val startMinute = startMinuteText.toIntOrNull()
+    val isStartMinuteValid = startMinute in 0..59
+    val isStartTimeValid = isStartHourValid && isStartMinuteValid
+    val nominalCapacity = nominalCapacityText.trim().toFloatOrNull()
+    val isNominalCapacityValid = nominalCapacityText.isBlank() ||
+        (nominalCapacity != null && nominalCapacity in 500f..15000f)
     val isWideScreen = LocalConfiguration.current.screenWidthDp >= 600
     val unavailableLabel = stringResource(id = R.string.battery_data_unavailable)
 
@@ -73,6 +93,19 @@ fun BatteryScreen(
     val cutoff = now - graphRangeDays.toLong() * 24 * 60 * 60 * 1000
     val filteredHistory = state.batteryHistory.filter { it.capturedAt >= cutoff }
     val (chargeCount, dischargeCount) = countChargeDischargeTransitions(state.batteryHistory)
+    val levelText = currentSnapshot?.levelPercent?.let { "${it}%" } ?: unavailableLabel
+    val healthEstimate = currentSnapshot?.estimatedHealthByDesignPercent
+        ?.let { "${"%.1f".format(it)}%（設計容量基準）" }
+        ?: currentSnapshot?.estimatedHealthPercent?.let { "${"%.1f".format(it)}%（履歴基準）" }
+        ?: "推定不可"
+    val healthLabel = BatteryInfoCollector.healthLabel(currentSnapshot?.health)
+    val statusLabel = BatteryInfoCollector.statusLabel(currentSnapshot?.status)
+    val chargeCycleItems = buildChargeCycleItems(
+        cycleCount = currentSnapshot?.cycleCount,
+        chargeCount = chargeCount,
+        dischargeCount = dischargeCount,
+        unavailableLabel = unavailableLabel
+    )
 
     Scaffold(
         topBar = {
@@ -84,8 +117,8 @@ fun BatteryScreen(
                     actionIconContentColor = MaterialTheme.colorScheme.onPrimary
                 ),
                 actions = {
-                    TextButton(onClick = onRefreshBatteryInfo) {
-                        Text("更新", color = MaterialTheme.colorScheme.onPrimary)
+                    IconButton(onClick = onRefreshBatteryInfo) {
+                        Icon(imageVector = Icons.Default.Refresh, contentDescription = "更新")
                     }
                 }
             )
@@ -99,104 +132,35 @@ fun BatteryScreen(
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.22f)
+            BatteryInfoCard(
+                title = "基本情報",
+                items = listOf(
+                    "残量" to levelText,
+                    "状態" to statusLabel,
+                    "健康" to healthLabel,
+                    "推定劣化" to healthEstimate,
+                    "技術" to currentSnapshot?.technology.orEmpty().ifBlank { unavailableLabel }
                 )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = stringResource(id = R.string.battery_report_section_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text(stringResource(id = R.string.battery_report_toggle))
-                        Switch(
-                            checked = reportEnabled,
-                            onCheckedChange = { reportEnabled = it }
-                        )
-                    }
-                    OutlinedTextField(
-                        value = intervalText,
-                        onValueChange = { intervalText = it },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text(stringResource(id = R.string.battery_report_interval_label)) },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                        singleLine = true,
-                        isError = reportEnabled && !isIntervalValid
-                    )
-                    if (reportEnabled && !isIntervalValid) {
-                        Text(
-                            text = stringResource(id = R.string.battery_report_interval_error),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.error
-                        )
-                    } else {
-                        Text(
-                            text = stringResource(id = R.string.battery_report_interval_hint),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Button(
-                        onClick = {
-                            onSaveBatteryReportConfig(reportEnabled, intervalMinutes ?: 60)
-                        },
-                        enabled = !reportEnabled || isIntervalValid,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Text(stringResource(id = R.string.battery_report_save))
-                    }
-                }
-            }
+            )
+            BatteryInfoCard(
+                title = "詳細情報",
+                items = listOf(
+                    "電流（瞬間）" to formatCurrentUa(currentSnapshot?.currentNowUa),
+                    "電流（平均）" to formatCurrentUa(currentSnapshot?.currentAverageUa),
+                    "電圧" to formatVoltageMv(currentSnapshot?.voltageMv),
+                    "温度" to formatTemperature(currentSnapshot?.temperatureC),
+                    "エネルギー" to formatEnergyNwh(currentSnapshot?.energyCounterNwh),
+                    "公称容量（手入力）" to formatCapacityMah(state.batteryNominalCapacityMah),
+                    "設計容量" to formatCapacityMah(currentSnapshot?.designCapacityMah),
+                    "残容量" to formatChargeCounter(currentSnapshot?.chargeCounterUah)
+                )
+            )
+            BatteryInfoCard(
+                title = "充放電情報",
+                items = chargeCycleItems
+            )
 
-            Card {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "劣化履歴の収集（1時間ごと）",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Text("履歴収集を有効にする")
-                        Switch(
-                            checked = state.batteryHistoryConfig.enabled,
-                            onCheckedChange = onSaveBatteryHistoryEnabled
-                        )
-                    }
-                    Text(
-                        text = "保持期間: ${state.batteryHistoryConfig.retentionDays}日（自動削除）",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    Text(
-                        text = "※ ${stringResource(id = R.string.battery_data_unavailable)}の項目は端末仕様により未提供です。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Card {
+            Card(colors = AppCardColors.emphasized()) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -207,6 +171,11 @@ fun BatteryScreen(
                         text = "劣化推定グラフ",
                         style = MaterialTheme.typography.titleMedium,
                         fontWeight = FontWeight.SemiBold
+                    )
+                    Text(
+                        text = stringResource(id = R.string.battery_graph_range_help),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
                     AdaptiveActionGroup(maxItemsInRow = 3) { compact ->
                         listOf(7, 30, 90).forEach { range ->
@@ -245,87 +214,211 @@ fun BatteryScreen(
                 }
             }
 
-            val levelText = currentSnapshot?.levelPercent?.let { "${it}%" } ?: unavailableLabel
-            val healthEstimate = currentSnapshot?.estimatedHealthPercent?.let { "${"%.1f".format(it)}%" } ?: "推定不可"
-            val healthLabel = BatteryInfoCollector.healthLabel(currentSnapshot?.health)
-            val statusLabel = BatteryInfoCollector.statusLabel(currentSnapshot?.status)
-
-            if (isWideScreen) {
-                // タブレット幅では情報カードを2カラム化して視認性を確保する
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+            Card(colors = AppCardColors.normal()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    Text(
+                        text = "劣化履歴の収集（1時間ごと）",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        BatteryInfoCard(
-                            title = "基本情報",
-                            items = listOf(
-                                "残量" to levelText,
-                                "状態" to statusLabel,
-                                "健康" to healthLabel,
-                                "推定劣化" to healthEstimate,
-                                "技術" to currentSnapshot?.technology.orEmpty().ifBlank { unavailableLabel }
-                            )
-                        )
-                        BatteryInfoCard(
-                            title = "充放電の観測値",
-                            items = listOf(
-                                "充電開始回数" to "$chargeCount 回",
-                                "放電開始回数" to "$dischargeCount 回",
-                                "サイクル数" to currentSnapshot?.cycleCount?.toString().orEmpty().ifBlank { unavailableLabel }
-                            )
+                        Text("履歴収集を有効にする")
+                        Switch(
+                            checked = state.batteryHistoryConfig.enabled,
+                            onCheckedChange = onSaveBatteryHistoryEnabled
                         )
                     }
-                    Column(
-                        modifier = Modifier.weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
+                    Text(
+                        text = "保持期間: ${state.batteryHistoryConfig.retentionDays}日（自動削除）",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Text(
+                        text = "※ ${stringResource(id = R.string.battery_data_unavailable)}の項目は端末仕様により未提供です。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            Card(colors = AppCardColors.emphasized()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = stringResource(id = R.string.battery_report_section_title),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        BatteryInfoCard(
-                            title = "通常では見られない情報",
-                            items = listOf(
-                                "電流（瞬間）" to formatCurrentUa(currentSnapshot?.currentNowUa),
-                                "電流（平均）" to formatCurrentUa(currentSnapshot?.currentAverageUa),
-                                "電圧" to formatVoltageMv(currentSnapshot?.voltageMv),
-                                "温度" to formatTemperature(currentSnapshot?.temperatureC),
-                                "エネルギー" to formatEnergyNwh(currentSnapshot?.energyCounterNwh),
-                                "残容量" to formatChargeCounter(currentSnapshot?.chargeCounterUah)
-                            )
+                        Text(stringResource(id = R.string.battery_report_toggle))
+                        Switch(
+                            checked = reportEnabled,
+                            onCheckedChange = { reportEnabled = it }
                         )
+                    }
+                    OutlinedTextField(
+                        value = intervalText,
+                        onValueChange = { intervalText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(id = R.string.battery_report_interval_label)) },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        isError = reportEnabled && !isIntervalValid
+                    )
+                    if (isWideScreen) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = startHourText,
+                                onValueChange = { startHourText = it },
+                                modifier = Modifier.weight(1f),
+                                label = { Text(stringResource(id = R.string.battery_report_start_hour_label)) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                isError = reportEnabled && !isStartHourValid
+                            )
+                            OutlinedTextField(
+                                value = startMinuteText,
+                                onValueChange = { startMinuteText = it },
+                                modifier = Modifier.weight(1f),
+                                label = { Text(stringResource(id = R.string.battery_report_start_minute_label)) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                isError = reportEnabled && !isStartMinuteValid
+                            )
+                        }
+                    } else {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedTextField(
+                                value = startHourText,
+                                onValueChange = { startHourText = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text(stringResource(id = R.string.battery_report_start_hour_label)) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                isError = reportEnabled && !isStartHourValid
+                            )
+                            OutlinedTextField(
+                                value = startMinuteText,
+                                onValueChange = { startMinuteText = it },
+                                modifier = Modifier.fillMaxWidth(),
+                                label = { Text(stringResource(id = R.string.battery_report_start_minute_label)) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                                singleLine = true,
+                                isError = reportEnabled && !isStartMinuteValid
+                            )
+                        }
+                    }
+                    if (reportEnabled && !isIntervalValid) {
+                        Text(
+                            text = stringResource(id = R.string.battery_report_interval_error),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    if (reportEnabled && !isStartTimeValid) {
+                        Text(
+                            text = stringResource(id = R.string.battery_report_start_time_error),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    if (!reportEnabled || (isIntervalValid && isStartTimeValid)) {
+                        Text(
+                            text = stringResource(id = R.string.battery_report_interval_hint),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Text(
+                        text = stringResource(id = R.string.battery_report_start_time_hint),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Button(
+                        onClick = {
+                            val normalizedMinute = startMinute ?: state.batteryReportConfig.startMinute
+                            onSaveBatteryReportConfig(
+                                reportEnabled,
+                                intervalMinutes ?: state.batteryReportConfig.intervalMinutes,
+                                startHour ?: state.batteryReportConfig.startHour,
+                                normalizedMinute
+                            )
+                            // 保存ボタン押下後の表示も2桁表記にそろえる
+                            startMinuteText = "%02d".format(normalizedMinute.coerceIn(0, 59))
+                        },
+                        enabled = !reportEnabled || (isIntervalValid && isStartTimeValid),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(stringResource(id = R.string.battery_report_save))
                     }
                 }
-            } else {
-                BatteryInfoCard(
-                    title = "基本情報",
-                    items = listOf(
-                        "残量" to levelText,
-                        "状態" to statusLabel,
-                        "健康" to healthLabel,
-                        "推定劣化" to healthEstimate,
-                        "技術" to currentSnapshot?.technology.orEmpty().ifBlank { unavailableLabel }
+            }
+
+            Card(colors = AppCardColors.normal()) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(14.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "公称容量 (mAh)",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold
                     )
-                )
-                BatteryInfoCard(
-                    title = "通常では見られない情報",
-                    items = listOf(
-                        "電流（瞬間）" to formatCurrentUa(currentSnapshot?.currentNowUa),
-                        "電流（平均）" to formatCurrentUa(currentSnapshot?.currentAverageUa),
-                        "電圧" to formatVoltageMv(currentSnapshot?.voltageMv),
-                        "温度" to formatTemperature(currentSnapshot?.temperatureC),
-                        "エネルギー" to formatEnergyNwh(currentSnapshot?.energyCounterNwh),
-                        "残容量" to formatChargeCounter(currentSnapshot?.chargeCounterUah)
+                    Text(
+                        text = "手入力すると、劣化率の計算で最優先で使用します。空欄なら端末値を使います。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                )
-                BatteryInfoCard(
-                    title = "充放電の観測値",
-                    items = listOf(
-                        "充電開始回数" to "$chargeCount 回",
-                        "放電開始回数" to "$dischargeCount 回",
-                        "サイクル数" to currentSnapshot?.cycleCount?.toString().orEmpty().ifBlank { unavailableLabel }
+                    OutlinedTextField(
+                        value = nominalCapacityText,
+                        onValueChange = { nominalCapacityText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("公称容量 (mAh)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        singleLine = true,
+                        isError = !isNominalCapacityValid
                     )
-                )
+                    if (!isNominalCapacityValid) {
+                        Text(
+                            text = "500〜15000 mAh の範囲で入力してください（空欄は未設定）。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    }
+                    Button(
+                        onClick = {
+                            onSaveBatteryNominalCapacity(
+                                nominalCapacity?.coerceIn(500f, 15000f)
+                            )
+                        },
+                        enabled = isNominalCapacityValid,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text("公称容量を保存")
+                    }
+                }
             }
         }
     }
@@ -336,7 +429,7 @@ private fun BatteryInfoCard(
     title: String,
     items: List<Pair<String, String>>
 ) {
-    Card {
+    Card(colors = AppCardColors.normal()) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
@@ -412,4 +505,26 @@ private fun formatEnergyNwh(value: Long?): String {
 private fun formatChargeCounter(value: Int?): String {
     if (value == null) return "取得不可"
     return "${"%.0f".format(value / 1000f)} mAh"
+}
+
+private fun formatCapacityMah(value: Float?): String {
+    if (value == null) return "取得不可"
+    return "${"%.0f".format(value)} mAh"
+}
+
+private fun buildChargeCycleItems(
+    cycleCount: Int?,
+    chargeCount: Int,
+    dischargeCount: Int,
+    unavailableLabel: String
+): List<Pair<String, String>> {
+    return if (cycleCount != null) {
+        listOf("充放電回数（OS値）" to "$cycleCount 回")
+    } else {
+        listOf(
+            "充放電回数（OS値）" to unavailableLabel,
+            "充電開始回数（アプリ観測値）" to "$chargeCount 回",
+            "放電開始回数（アプリ観測値）" to "$dischargeCount 回"
+        )
+    }
 }

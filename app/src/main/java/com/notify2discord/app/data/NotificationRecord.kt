@@ -6,5 +6,8 @@ data class NotificationRecord(
     val appName: String,
     val title: String,
     val text: String,
-    val postTime: Long
+    val postTime: Long,
+    val historyGroupKey: String? = null,
+    val conversationName: String? = null,
+    val senderName: String? = null
 )

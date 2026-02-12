@@ -3,7 +3,9 @@
 package com.notify2discord.app.ui
 
 import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Canvas
+import android.util.Base64
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
@@ -67,6 +69,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import com.notify2discord.app.data.LineThreadProfile
 import com.notify2discord.app.data.NotificationRecord
 import java.time.Instant
 import java.time.LocalDate
@@ -79,6 +82,14 @@ private data class AppNotificationSummary(
     val count: Int,
     val unreadCount: Int,
     val latest: NotificationRecord
+)
+
+private data class LineConversationSummary(
+    val threadKey: String,
+    val displayName: String,
+    val latest: NotificationRecord,
+    val unreadCount: Int,
+    val iconBase64Png: String?
 )
 
 private sealed class ChatItem {
@@ -99,6 +110,8 @@ private enum class AppListSortOrder {
     APP_NAME
 }
 
+private const val linePackageName = "jp.naver.line.android"
+
 private val bubbleShape = RoundedCornerShape(
     topStart = 16.dp,
     topEnd = 16.dp,
@@ -111,40 +124,81 @@ private val bubbleShape = RoundedCornerShape(
 fun NotificationHistoryScreen(
     history: List<NotificationRecord>,
     readMarkers: Map<String, Long>,
+    lineThreadProfiles: Map<String, LineThreadProfile>,
     onDeleteRecord: (Long) -> Unit,
     onDeleteRecords: (Set<Long>) -> Unit,
     onClearAll: () -> Unit,
     onClearByApp: (String) -> Unit,
     onClearByApps: (Set<String>) -> Unit,
-    onMarkAppAsRead: (String, Long) -> Unit
+    onClearByHistoryGroupKey: (String) -> Unit,
+    onMarkHistoryAsRead: (String, Long) -> Unit
 ) {
     var selectedAppPackage by rememberSaveable { mutableStateOf<String?>(null) }
+    var selectedLineThreadKey by rememberSaveable { mutableStateOf<String?>(null) }
 
-    BackHandler(enabled = selectedAppPackage != null) {
-        selectedAppPackage = null
+    BackHandler(enabled = selectedAppPackage != null || selectedLineThreadKey != null) {
+        if (selectedLineThreadKey != null) {
+            selectedLineThreadKey = null
+        } else {
+            selectedAppPackage = null
+        }
     }
 
-    if (selectedAppPackage != null) {
-        val pkg = selectedAppPackage!!
-        val appRecords = history.filter { it.packageName == pkg }
-        val appName = appRecords.firstOrNull()?.appName ?: pkg
-        val latestPostTime = appRecords.maxOfOrNull { it.postTime }
+    if (selectedLineThreadKey != null) {
+        val threadKey = selectedLineThreadKey!!
+        val threadRecords = history.filter { historyKeyForRecord(it) == threadKey }
+        val conversationName = lineThreadProfiles[threadKey]?.displayName
+            ?: threadRecords.firstOrNull()?.conversationName
+            ?: threadRecords.firstOrNull()?.title
+            ?: "LINE"
+        val latestPostTime = threadRecords.maxOfOrNull { it.postTime }
 
-        LaunchedEffect(pkg, latestPostTime) {
+        LaunchedEffect(threadKey, latestPostTime) {
             if (latestPostTime != null) {
-                onMarkAppAsRead(pkg, latestPostTime)
+                onMarkHistoryAsRead(threadKey, latestPostTime)
             }
         }
 
         AppDetailScreen(
-            packageName = pkg,
-            appName = appName,
-            records = appRecords,
+            packageName = linePackageName,
+            appName = conversationName,
+            records = threadRecords,
             onDeleteRecord = onDeleteRecord,
             onDeleteRecords = onDeleteRecords,
-            onClearByApp = { onClearByApp(pkg) },
-            onNavigateBack = { selectedAppPackage = null }
+            onClearCurrent = { onClearByHistoryGroupKey(threadKey) },
+            onNavigateBack = { selectedLineThreadKey = null }
         )
+    } else if (selectedAppPackage != null) {
+        val pkg = selectedAppPackage!!
+        if (pkg == linePackageName) {
+            LineConversationListScreen(
+                lineRecords = history.filter { it.packageName == linePackageName },
+                lineThreadProfiles = lineThreadProfiles,
+                readMarkers = readMarkers,
+                onSelectConversation = { selectedLineThreadKey = it },
+                onNavigateBack = { selectedAppPackage = null }
+            )
+        } else {
+            val appRecords = history.filter { it.packageName == pkg }
+            val appName = appRecords.firstOrNull()?.appName ?: pkg
+            val latestPostTime = appRecords.maxOfOrNull { it.postTime }
+
+            LaunchedEffect(pkg, latestPostTime) {
+                if (latestPostTime != null) {
+                    onMarkHistoryAsRead(appHistoryKey(pkg), latestPostTime)
+                }
+            }
+
+            AppDetailScreen(
+                packageName = pkg,
+                appName = appName,
+                records = appRecords,
+                onDeleteRecord = onDeleteRecord,
+                onDeleteRecords = onDeleteRecords,
+                onClearCurrent = { onClearByApp(pkg) },
+                onNavigateBack = { selectedAppPackage = null }
+            )
+        }
     } else {
         AppListScreen(
             history = history,
@@ -217,12 +271,14 @@ private fun AppListScreen(
             .groupBy { it.packageName }
             .map { (pkg, records) ->
                 val latest = records.maxByOrNull { it.postTime } ?: records.first()
-                val readUntil = readMarkers[pkg] ?: 0L
                 AppNotificationSummary(
                     packageName = pkg,
                     appName = records.first().appName,
                     count = records.size,
-                    unreadCount = records.count { it.postTime > readUntil },
+                    unreadCount = records.count { record ->
+                        val readUntil = readMarkers[historyKeyForRecord(record)] ?: 0L
+                        record.postTime > readUntil
+                    },
                     latest = latest
                 )
             }
@@ -510,13 +566,165 @@ private fun AppListScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
+private fun LineConversationListScreen(
+    lineRecords: List<NotificationRecord>,
+    lineThreadProfiles: Map<String, LineThreadProfile>,
+    readMarkers: Map<String, Long>,
+    onSelectConversation: (String) -> Unit,
+    onNavigateBack: () -> Unit
+) {
+    val summaries = remember(lineRecords, lineThreadProfiles, readMarkers) {
+        lineRecords
+            .groupBy(::historyKeyForRecord)
+            .map { (threadKey, records) ->
+                val latest = records.maxByOrNull { it.postTime } ?: records.first()
+                val readUntil = readMarkers[threadKey] ?: 0L
+                LineConversationSummary(
+                    threadKey = threadKey,
+                    displayName = lineThreadProfiles[threadKey]?.displayName
+                        ?: latest.conversationName
+                        ?: latest.title.ifBlank { "会話" },
+                    latest = latest,
+                    unreadCount = records.count { it.postTime > readUntil },
+                    iconBase64Png = lineThreadProfiles[threadKey]?.iconBase64Png
+                )
+            }
+            .sortedByDescending { it.latest.postTime }
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("LINE 会話履歴") },
+                colors = appBarColors(),
+                navigationIcon = {
+                    IconButton(onClick = onNavigateBack) {
+                        Icon(Icons.AutoMirrored.Filled.ArrowBack, "戻る")
+                    }
+                }
+            )
+        }
+    ) { padding ->
+        if (summaries.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "会話履歴がありません",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(padding)
+            ) {
+                items(summaries, key = { it.threadKey }) { summary ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .combinedClickable(
+                                onClick = { onSelectConversation(summary.threadKey) },
+                                onLongClick = null
+                            )
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        LineThreadIcon(
+                            iconBase64Png = summary.iconBase64Png,
+                            modifier = Modifier
+                                .size(48.dp)
+                                .clip(CircleShape)
+                        )
+                        Column(
+                            modifier = Modifier
+                                .weight(1f)
+                                .padding(start = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(2.dp)
+                        ) {
+                            Text(
+                                text = summary.displayName,
+                                style = MaterialTheme.typography.bodyLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            val previewText = summary.latest.text.ifBlank { summary.latest.title }
+                            val senderName = summary.latest.senderName?.takeIf { it.isNotBlank() }
+                            val preview = if (senderName != null) {
+                                "$senderName: $previewText"
+                            } else {
+                                previewText
+                            }.replace("\n", " ")
+                            if (preview.isNotBlank()) {
+                                Text(
+                                    text = preview,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                            }
+                        }
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            verticalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text(
+                                text = formatSummaryTime(summary.latest.postTime),
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                            if (summary.unreadCount > 0) {
+                                Badge {
+                                    Text(text = summary.unreadCount.toString())
+                                }
+                            }
+                        }
+                    }
+                    Divider(
+                        color = MaterialTheme.colorScheme.outlineVariant,
+                        thickness = 0.5.dp
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun LineThreadIcon(iconBase64Png: String?, modifier: Modifier = Modifier) {
+    val bitmap: ImageBitmap? = remember(iconBase64Png) {
+        if (iconBase64Png.isNullOrBlank()) return@remember null
+        runCatching {
+            val bytes = Base64.decode(iconBase64Png, Base64.DEFAULT)
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        }.getOrNull()
+    }
+    if (bitmap != null) {
+        Image(
+            bitmap = bitmap,
+            contentDescription = null,
+            modifier = modifier,
+            contentScale = ContentScale.Crop
+        )
+    } else {
+        AppIcon(packageName = linePackageName, modifier = modifier)
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
 private fun AppDetailScreen(
     packageName: String,
     appName: String,
     records: List<NotificationRecord>,
     onDeleteRecord: (Long) -> Unit,
     onDeleteRecords: (Set<Long>) -> Unit,
-    onClearByApp: () -> Unit,
+    onClearCurrent: () -> Unit,
     onNavigateBack: () -> Unit
 ) {
     var recordToDelete by remember { mutableStateOf<NotificationRecord?>(null) }
@@ -730,6 +938,14 @@ private fun AppDetailScreen(
                                         modifier = Modifier.padding(12.dp),
                                         verticalArrangement = Arrangement.spacedBy(4.dp)
                                     ) {
+                                        if (record.senderName?.isNotBlank() == true) {
+                                            Text(
+                                                text = record.senderName,
+                                                style = MaterialTheme.typography.labelMedium,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontWeight = FontWeight.SemiBold
+                                            )
+                                        }
                                         if (record.title.isNotBlank()) {
                                             Text(
                                                 text = record.title,
@@ -813,7 +1029,7 @@ private fun AppDetailScreen(
             text = { Text("${records.size}件の履歴を削除します。この操作は元に戻せません。") },
             confirmButton = {
                 TextButton(onClick = {
-                    onClearByApp()
+                    onClearCurrent()
                     showClearConfirm = false
                 }) {
                     Text("全削除")
@@ -893,6 +1109,13 @@ private fun formatSummaryTime(postTime: Long): String {
         today.minusDays(1) -> "昨日 " + zdt.format(DateTimeFormatter.ofPattern("HH:mm"))
         else -> zdt.format(DateTimeFormatter.ofPattern("M/d"))
     }
+}
+
+private fun appHistoryKey(packageName: String): String = "app::$packageName"
+
+private fun historyKeyForRecord(record: NotificationRecord): String {
+    val groupKey = record.historyGroupKey?.takeIf { it.isNotBlank() }
+    return groupKey ?: appHistoryKey(record.packageName)
 }
 
 private fun HistoryRangeFilter.label(): String = when (this) {

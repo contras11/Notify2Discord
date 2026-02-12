@@ -52,6 +52,10 @@ class SettingsRepository(private val context: Context) {
     private val keyBatteryReportConfig = stringPreferencesKey("battery_report_config")
     private val keyBatteryHistoryConfig = stringPreferencesKey("battery_history_config")
     private val keyBatteryHistory = stringPreferencesKey("battery_history")
+    private val keyCaptureHistoryWhenForwardingOff = booleanPreferencesKey("capture_history_when_forwarding_off")
+    private val keyHistoryCapturePackages = stringSetPreferencesKey("history_capture_packages")
+    private val keyBatteryNominalCapacityMah = stringPreferencesKey("battery_nominal_capacity_mah")
+    private val keyLineThreadProfiles = stringPreferencesKey("line_thread_profiles")
 
     private val keyUiModeRulesSimple = booleanPreferencesKey("ui_mode_rules_simple")
     private val keyLastBackupAt = longPreferencesKey("last_backup_at")
@@ -94,6 +98,10 @@ class SettingsRepository(private val context: Context) {
             batteryReportConfig = deserializeBatteryReportConfig(prefs[keyBatteryReportConfig] ?: ""),
             batteryHistoryConfig = deserializeBatteryHistoryConfig(prefs[keyBatteryHistoryConfig] ?: ""),
             batteryHistory = deserializeBatteryHistory(prefs[keyBatteryHistory] ?: ""),
+            captureHistoryWhenForwardingOff = prefs[keyCaptureHistoryWhenForwardingOff] ?: false,
+            historyCapturePackages = prefs[keyHistoryCapturePackages] ?: emptySet(),
+            batteryNominalCapacityMah = prefs[keyBatteryNominalCapacityMah]?.toFloatOrNull(),
+            lineThreadProfiles = deserializeLineThreadProfiles(prefs[keyLineThreadProfiles] ?: ""),
             uiModeRulesSimple = prefs[keyUiModeRulesSimple] ?: true,
             lastBackupAt = prefs[keyLastBackupAt],
             lastManualBackupAt = prefs[keyLastManualBackupAt],
@@ -130,6 +138,20 @@ class SettingsRepository(private val context: Context) {
                 current - packageName
             }
             this[keyExcludedPackages] = updated
+        }
+    }
+
+    suspend fun setCaptureHistoryWhenForwardingOff(enabled: Boolean) {
+        editSettings {
+            this[keyCaptureHistoryWhenForwardingOff] = enabled
+        }
+    }
+
+    suspend fun toggleHistoryCapturePackage(packageName: String, selected: Boolean) {
+        editSettings {
+            val current = this[keyHistoryCapturePackages] ?: emptySet()
+            val updated = if (selected) current + packageName else current - packageName
+            this[keyHistoryCapturePackages] = updated
         }
     }
 
@@ -205,7 +227,9 @@ class SettingsRepository(private val context: Context) {
 
     suspend fun saveBatteryReportConfig(config: BatteryReportConfig) {
         val normalized = config.copy(
-            intervalMinutes = config.intervalMinutes.coerceIn(15, 1440)
+            intervalMinutes = config.intervalMinutes.coerceIn(15, 1440),
+            startHour = config.startHour.coerceIn(0, 23),
+            startMinute = config.startMinute.coerceIn(0, 59)
         )
         editSettings {
             this[keyBatteryReportConfig] = serializeBatteryReportConfig(normalized)
@@ -221,6 +245,25 @@ class SettingsRepository(private val context: Context) {
             this[keyBatteryHistoryConfig] = serializeBatteryHistoryConfig(normalized)
         }
         trimBatteryHistory(normalized.retentionDays)
+    }
+
+    suspend fun saveBatteryNominalCapacityMah(capacityMah: Float?) {
+        editSettings {
+            if (capacityMah == null) {
+                remove(keyBatteryNominalCapacityMah)
+            } else {
+                this[keyBatteryNominalCapacityMah] = capacityMah.toString()
+            }
+        }
+    }
+
+    suspend fun upsertLineThreadProfile(profile: LineThreadProfile) {
+        if (profile.threadKey.isBlank()) return
+        editSettings {
+            val current = deserializeLineThreadProfiles(this[keyLineThreadProfiles] ?: "")
+            val updated = current + (profile.threadKey to profile)
+            this[keyLineThreadProfiles] = serializeLineThreadProfiles(updated)
+        }
     }
 
     suspend fun appendBatterySnapshot(snapshot: BatterySnapshot) {
@@ -394,6 +437,7 @@ class SettingsRepository(private val context: Context) {
         return settings.webhookUrl.isNotBlank() ||
             settings.appWebhooks.isNotEmpty() ||
             settings.selectedPackages.isNotEmpty() ||
+            settings.historyCapturePackages.isNotEmpty() ||
             settings.appTemplates.isNotEmpty() ||
             settings.routingRules.isNotEmpty() ||
             settings.notificationExists()
@@ -508,6 +552,10 @@ class SettingsRepository(private val context: Context) {
             prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
                 sanitizeHistoryReadMarkers(markers, updated)
             )
+            val profiles = deserializeLineThreadProfiles(prefs[keyLineThreadProfiles] ?: "")
+            prefs[keyLineThreadProfiles] = serializeLineThreadProfiles(
+                pruneLineThreadProfiles(profiles, updated)
+            )
         }
     }
 
@@ -520,6 +568,10 @@ class SettingsRepository(private val context: Context) {
             prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
                 sanitizeHistoryReadMarkers(markers, updated)
             )
+            val profiles = deserializeLineThreadProfiles(prefs[keyLineThreadProfiles] ?: "")
+            prefs[keyLineThreadProfiles] = serializeLineThreadProfiles(
+                pruneLineThreadProfiles(profiles, updated)
+            )
         }
     }
 
@@ -527,6 +579,7 @@ class SettingsRepository(private val context: Context) {
         dataStore.edit { prefs ->
             prefs[keyNotificationHistory] = ""
             prefs[keyHistoryReadMarkers] = ""
+            prefs[keyLineThreadProfiles] = ""
         }
     }
 
@@ -548,6 +601,10 @@ class SettingsRepository(private val context: Context) {
             prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
                 sanitizeHistoryReadMarkers(markers, updated)
             )
+            val profiles = deserializeLineThreadProfiles(prefs[keyLineThreadProfiles] ?: "")
+            prefs[keyLineThreadProfiles] = serializeLineThreadProfiles(
+                pruneLineThreadProfiles(profiles, updated)
+            )
         }
     }
 
@@ -560,6 +617,10 @@ class SettingsRepository(private val context: Context) {
             prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
                 sanitizeHistoryReadMarkers(markers, updated)
             )
+            val profiles = deserializeLineThreadProfiles(prefs[keyLineThreadProfiles] ?: "")
+            prefs[keyLineThreadProfiles] = serializeLineThreadProfiles(
+                pruneLineThreadProfiles(profiles, updated)
+            )
         }
     }
 
@@ -570,7 +631,11 @@ class SettingsRepository(private val context: Context) {
             prefs[keyNotificationHistory] = serializeNotificationHistory(updated)
             val markers = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
             prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
-                sanitizeHistoryReadMarkers(markers - packageName, updated)
+                sanitizeHistoryReadMarkers(markers - appHistoryKey(packageName), updated)
+            )
+            val profiles = deserializeLineThreadProfiles(prefs[keyLineThreadProfiles] ?: "")
+            prefs[keyLineThreadProfiles] = serializeLineThreadProfiles(
+                pruneLineThreadProfiles(profiles, updated)
             )
         }
     }
@@ -582,35 +647,67 @@ class SettingsRepository(private val context: Context) {
             val updated = current.filter { it.packageName !in packageNames }
             prefs[keyNotificationHistory] = serializeNotificationHistory(updated)
             val markers = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
+            val markerKeys = packageNames.map(::appHistoryKey).toSet()
             prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
-                sanitizeHistoryReadMarkers(markers - packageNames, updated)
+                sanitizeHistoryReadMarkers(markers - markerKeys, updated)
+            )
+            val profiles = deserializeLineThreadProfiles(prefs[keyLineThreadProfiles] ?: "")
+            prefs[keyLineThreadProfiles] = serializeLineThreadProfiles(
+                pruneLineThreadProfiles(profiles, updated)
             )
         }
     }
 
-    suspend fun markAppHistoryRead(packageName: String, readUntilPostTime: Long) {
-        if (packageName.isBlank() || readUntilPostTime <= 0L) return
+    suspend fun clearNotificationHistoryByGroupKey(historyGroupKey: String) {
+        if (historyGroupKey.isBlank()) return
+        dataStore.edit { prefs ->
+            val normalizedKey = normalizeHistoryMarkerKey(historyGroupKey)
+            val current = deserializeNotificationHistory(prefs[keyNotificationHistory] ?: "")
+            val updated = current.filter { historyKeyForRecord(it) != normalizedKey }
+            prefs[keyNotificationHistory] = serializeNotificationHistory(updated)
+            val markers = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
+            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
+                sanitizeHistoryReadMarkers(markers - normalizedKey, updated)
+            )
+            val profiles = deserializeLineThreadProfiles(prefs[keyLineThreadProfiles] ?: "")
+            prefs[keyLineThreadProfiles] = serializeLineThreadProfiles(
+                pruneLineThreadProfiles(profiles, updated)
+            )
+        }
+    }
+
+    suspend fun markHistoryRead(historyKey: String, readUntilPostTime: Long) {
+        if (historyKey.isBlank() || readUntilPostTime <= 0L) return
         dataStore.edit { prefs ->
             val current = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
-            val previous = current[packageName] ?: 0L
-            val updated = current + (packageName to maxOf(previous, readUntilPostTime))
+            val normalizedKey = normalizeHistoryMarkerKey(historyKey)
+            val previous = current[normalizedKey] ?: 0L
+            val updated = current + (normalizedKey to maxOf(previous, readUntilPostTime))
             prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(updated)
         }
     }
 
-    suspend fun clearHistoryReadMarker(packageName: String) {
+    suspend fun markAppHistoryRead(packageName: String, readUntilPostTime: Long) {
         if (packageName.isBlank()) return
+        markHistoryRead(appHistoryKey(packageName), readUntilPostTime)
+    }
+
+    suspend fun clearHistoryReadMarker(historyKey: String) {
+        if (historyKey.isBlank()) return
         dataStore.edit { prefs ->
             val current = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
-            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(current - packageName)
+            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(
+                current - normalizeHistoryMarkerKey(historyKey)
+            )
         }
     }
 
-    suspend fun clearHistoryReadMarkers(packageNames: Set<String>) {
-        if (packageNames.isEmpty()) return
+    suspend fun clearHistoryReadMarkers(historyKeys: Set<String>) {
+        if (historyKeys.isEmpty()) return
         dataStore.edit { prefs ->
             val current = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: "")
-            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(current - packageNames)
+            val normalized = historyKeys.map(::normalizeHistoryMarkerKey).toSet()
+            prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(current - normalized)
         }
     }
 
@@ -700,6 +797,51 @@ class SettingsRepository(private val context: Context) {
                 prefs[keyBatteryHistoryConfig] = settings.optJSONObject("batteryHistoryConfig")
                     ?.toString()
                     ?: serializeBatteryHistoryConfig(BatteryHistoryConfig())
+                prefs[keyBatteryHistory] = settings.optJSONArray("batteryHistory")
+                    ?.toString()
+                    ?: "[]"
+                prefs[keyCaptureHistoryWhenForwardingOff] = settings.optBoolean(
+                    "captureHistoryWhenForwardingOff",
+                    false
+                )
+                prefs[keyHistoryCapturePackages] = settings.optJSONArray("historyCapturePackages")
+                    ?.let { jsonArrayToStringList(it).toSet() }
+                    ?: emptySet()
+                val nominalCapacity = if (
+                    settings.has("batteryNominalCapacityMah") &&
+                    !settings.isNull("batteryNominalCapacityMah")
+                ) {
+                    settings.optDouble("batteryNominalCapacityMah").toFloat()
+                } else {
+                    null
+                }
+                if (nominalCapacity == null) {
+                    prefs.remove(keyBatteryNominalCapacityMah)
+                } else {
+                    prefs[keyBatteryNominalCapacityMah] = nominalCapacity.toString()
+                }
+                prefs[keyLineThreadProfiles] = settings.optJSONArray("lineThreadProfiles")
+                    ?.toString()
+                    ?: "[]"
+                val restoredHistoryJson = settings.optJSONArray("notificationHistory")
+                    ?.toString()
+                    ?: "[]"
+                prefs[keyNotificationHistory] = restoredHistoryJson
+                val restoredReadMarkers = deserializeHistoryReadMarkers(
+                    settings.optJSONObject("historyReadMarkers")?.toString().orEmpty()
+                )
+                val sanitizedReadMarkers = sanitizeHistoryReadMarkers(
+                    markers = restoredReadMarkers,
+                    records = deserializeNotificationHistory(restoredHistoryJson)
+                )
+                prefs[keyHistoryReadMarkers] = serializeHistoryReadMarkers(sanitizedReadMarkers)
+                val restoredProfiles = deserializeLineThreadProfiles(prefs[keyLineThreadProfiles] ?: "")
+                prefs[keyLineThreadProfiles] = serializeLineThreadProfiles(
+                    pruneLineThreadProfiles(
+                        profiles = restoredProfiles,
+                        records = deserializeNotificationHistory(restoredHistoryJson)
+                    )
+                )
 
                 prefs[keyUiModeRulesSimple] = settings.optBoolean("uiModeRulesSimple", true)
                 if (settings.has("lastBackupAt") && !settings.isNull("lastBackupAt")) {
@@ -723,7 +865,17 @@ class SettingsRepository(private val context: Context) {
         }
     }
 
-    private fun buildSettingsSnapshotJson(settings: SettingsState): String {
+    private suspend fun buildSettingsSnapshotJson(settings: SettingsState): String {
+        val prefs = dataStore.data.first()
+        val notificationHistory = deserializeNotificationHistory(prefs[keyNotificationHistory] ?: "")
+        val historyReadMarkers = sanitizeHistoryReadMarkers(
+            markers = deserializeHistoryReadMarkers(prefs[keyHistoryReadMarkers] ?: ""),
+            records = notificationHistory
+        )
+        val lineThreadProfiles = pruneLineThreadProfiles(
+            profiles = deserializeLineThreadProfiles(prefs[keyLineThreadProfiles] ?: ""),
+            records = notificationHistory
+        )
         return JSONObject()
             .put("webhookUrl", settings.webhookUrl)
             .put("forwardingEnabled", settings.forwardingEnabled)
@@ -743,10 +895,17 @@ class SettingsRepository(private val context: Context) {
             .put("pendingQuietQueue", JSONArray(serializePendingQuietQueue(settings.pendingQuietQueue)))
             .put("batteryReportConfig", JSONObject(serializeBatteryReportConfig(settings.batteryReportConfig)))
             .put("batteryHistoryConfig", JSONObject(serializeBatteryHistoryConfig(settings.batteryHistoryConfig)))
+            .put("batteryHistory", JSONArray(serializeBatteryHistory(settings.batteryHistory)))
+            .put("captureHistoryWhenForwardingOff", settings.captureHistoryWhenForwardingOff)
+            .put("historyCapturePackages", JSONArray(settings.historyCapturePackages.toList()))
+            .put("batteryNominalCapacityMah", settings.batteryNominalCapacityMah)
+            .put("lineThreadProfiles", JSONArray(serializeLineThreadProfiles(lineThreadProfiles)))
+            .put("notificationHistory", JSONArray(serializeNotificationHistory(notificationHistory)))
+            .put("historyReadMarkers", JSONObject(serializeHistoryReadMarkers(historyReadMarkers)))
             .put("uiModeRulesSimple", settings.uiModeRulesSimple)
             .put("lastBackupAt", settings.lastBackupAt)
             .put("lastManualBackupAt", settings.lastManualBackupAt)
-            .put("backupSchemaVersion", settings.backupSchemaVersion)
+            .put("backupSchemaVersion", SettingsState.BACKUP_SCHEMA_VERSION)
             .toString()
     }
 
@@ -824,7 +983,11 @@ class SettingsRepository(private val context: Context) {
     }
 
     private fun SettingsState.notificationExists(): Boolean {
-        return pendingQuietQueue.isNotEmpty() || webhookHealthCache.isNotEmpty() || batteryReportConfig.enabled
+        return pendingQuietQueue.isNotEmpty() ||
+            webhookHealthCache.isNotEmpty() ||
+            batteryReportConfig.enabled ||
+            captureHistoryWhenForwardingOff ||
+            batteryNominalCapacityMah != null
     }
 
     private fun serializeAppWebhooks(map: Map<String, String>): String {
@@ -970,6 +1133,8 @@ class SettingsRepository(private val context: Context) {
         return JSONObject()
             .put("enabled", config.enabled)
             .put("intervalMinutes", config.intervalMinutes.coerceIn(15, 1440))
+            .put("startHour", config.startHour.coerceIn(0, 23))
+            .put("startMinute", config.startMinute.coerceIn(0, 59))
             .toString()
     }
 
@@ -979,7 +1144,9 @@ class SettingsRepository(private val context: Context) {
             val obj = JSONObject(str)
             BatteryReportConfig(
                 enabled = obj.optBoolean("enabled", false),
-                intervalMinutes = obj.optInt("intervalMinutes", 60).coerceIn(15, 1440)
+                intervalMinutes = obj.optInt("intervalMinutes", 60).coerceIn(15, 1440),
+                startHour = obj.optInt("startHour", BatteryReportConfig().startHour).coerceIn(0, 23),
+                startMinute = obj.optInt("startMinute", BatteryReportConfig().startMinute).coerceIn(0, 59)
             )
         }.getOrDefault(BatteryReportConfig())
     }
@@ -1022,8 +1189,10 @@ class SettingsRepository(private val context: Context) {
                     .put("currentAverageUa", snapshot.currentAverageUa)
                     .put("energyCounterNwh", snapshot.energyCounterNwh)
                     .put("cycleCount", snapshot.cycleCount)
+                    .put("designCapacityMah", snapshot.designCapacityMah)
                     .put("estimatedFullChargeMah", snapshot.estimatedFullChargeMah)
                     .put("estimatedHealthPercent", snapshot.estimatedHealthPercent)
+                    .put("estimatedHealthByDesignPercent", snapshot.estimatedHealthByDesignPercent)
             )
         }
         return array.toString()
@@ -1049,8 +1218,10 @@ class SettingsRepository(private val context: Context) {
                     currentAverageUa = if (obj.isNull("currentAverageUa")) null else obj.optInt("currentAverageUa"),
                     energyCounterNwh = if (obj.isNull("energyCounterNwh")) null else obj.optLong("energyCounterNwh"),
                     cycleCount = if (obj.isNull("cycleCount")) null else obj.optInt("cycleCount"),
+                    designCapacityMah = if (obj.isNull("designCapacityMah")) null else obj.optDouble("designCapacityMah").toFloat(),
                     estimatedFullChargeMah = if (obj.isNull("estimatedFullChargeMah")) null else obj.optDouble("estimatedFullChargeMah").toFloat(),
-                    estimatedHealthPercent = if (obj.isNull("estimatedHealthPercent")) null else obj.optDouble("estimatedHealthPercent").toFloat()
+                    estimatedHealthPercent = if (obj.isNull("estimatedHealthPercent")) null else obj.optDouble("estimatedHealthPercent").toFloat(),
+                    estimatedHealthByDesignPercent = if (obj.isNull("estimatedHealthByDesignPercent")) null else obj.optDouble("estimatedHealthByDesignPercent").toFloat()
                 )
             }.filter { it.capturedAt > 0L }
         }.getOrElse { emptyList() }
@@ -1219,6 +1390,9 @@ class SettingsRepository(private val context: Context) {
             obj.put("title", record.title)
             obj.put("text", record.text)
             obj.put("postTime", record.postTime)
+            obj.put("historyGroupKey", record.historyGroupKey)
+            obj.put("conversationName", record.conversationName)
+            obj.put("senderName", record.senderName)
             array.put(obj)
         }
         return array.toString()
@@ -1236,7 +1410,10 @@ class SettingsRepository(private val context: Context) {
                     appName = obj.getString("appName"),
                     title = obj.getString("title"),
                     text = obj.getString("text"),
-                    postTime = obj.getLong("postTime")
+                    postTime = obj.getLong("postTime"),
+                    historyGroupKey = obj.optString("historyGroupKey").takeIf { it.isNotBlank() },
+                    conversationName = obj.optString("conversationName").takeIf { it.isNotBlank() },
+                    senderName = obj.optString("senderName").takeIf { it.isNotBlank() }
                 )
             }
         } catch (_: Exception) {
@@ -1256,9 +1433,15 @@ class SettingsRepository(private val context: Context) {
         if (str.isBlank()) return emptyMap()
         return runCatching {
             val obj = JSONObject(str)
-            obj.keys().asSequence().associateWith { key ->
-                obj.optLong(key, 0L)
-            }.filterValues { it > 0L }
+            val normalized = mutableMapOf<String, Long>()
+            obj.keys().forEach { key ->
+                val markerKey = normalizeHistoryMarkerKey(key)
+                val value = obj.optLong(key, 0L)
+                if (value > 0L) {
+                    normalized[markerKey] = maxOf(normalized[markerKey] ?: 0L, value)
+                }
+            }
+            normalized
         }.getOrElse { emptyMap() }
     }
 
@@ -1267,9 +1450,76 @@ class SettingsRepository(private val context: Context) {
         records: List<NotificationRecord>
     ): Map<String, Long> {
         if (markers.isEmpty()) return emptyMap()
-        val existingPackages = records.asSequence().map { it.packageName }.toSet()
-        if (existingPackages.isEmpty()) return emptyMap()
-        return markers.filterKeys { it in existingPackages }
+        val validKeys = records.asSequence()
+            .map(::historyKeyForRecord)
+            .toSet()
+        if (validKeys.isEmpty()) return emptyMap()
+        return markers
+            .mapKeys { (key, _) -> normalizeHistoryMarkerKey(key) }
+            .filterKeys { it in validKeys }
+    }
+
+    private fun serializeLineThreadProfiles(profiles: Map<String, LineThreadProfile>): String {
+        val array = JSONArray()
+        profiles.values
+            .sortedByDescending { it.updatedAt }
+            .forEach { profile ->
+                array.put(
+                    JSONObject()
+                        .put("threadKey", profile.threadKey)
+                        .put("displayName", profile.displayName)
+                        .put("iconBase64Png", profile.iconBase64Png)
+                        .put("updatedAt", profile.updatedAt)
+                )
+            }
+        return array.toString()
+    }
+
+    private fun deserializeLineThreadProfiles(str: String): Map<String, LineThreadProfile> {
+        if (str.isBlank()) return emptyMap()
+        return runCatching {
+            val array = JSONArray(str)
+            (0 until array.length())
+                .mapNotNull { index ->
+                    val obj = array.optJSONObject(index) ?: return@mapNotNull null
+                    val threadKey = obj.optString("threadKey")
+                        .takeIf { it.isNotBlank() }
+                        ?.let(::normalizeHistoryMarkerKey)
+                        ?: return@mapNotNull null
+                    LineThreadProfile(
+                        threadKey = threadKey,
+                        displayName = obj.optString("displayName").ifBlank { threadKey.removePrefix("line::") },
+                        iconBase64Png = obj.optString("iconBase64Png").takeIf { it.isNotBlank() },
+                        updatedAt = obj.optLong("updatedAt", System.currentTimeMillis())
+                    )
+                }
+                .associateBy { it.threadKey }
+        }.getOrElse { emptyMap() }
+    }
+
+    private fun pruneLineThreadProfiles(
+        profiles: Map<String, LineThreadProfile>,
+        records: List<NotificationRecord>
+    ): Map<String, LineThreadProfile> {
+        if (profiles.isEmpty()) return emptyMap()
+        val activeLineKeys = records.asSequence()
+            .map(::historyKeyForRecord)
+            .filter { it.startsWith("line::") }
+            .toSet()
+        if (activeLineKeys.isEmpty()) return emptyMap()
+        return profiles.filterKeys { it in activeLineKeys }
+    }
+
+    private fun historyKeyForRecord(record: NotificationRecord): String {
+        val groupKey = record.historyGroupKey?.takeIf { it.isNotBlank() }?.let(::normalizeHistoryMarkerKey)
+        return groupKey ?: appHistoryKey(record.packageName)
+    }
+
+    private fun appHistoryKey(packageName: String): String = "app::$packageName"
+
+    private fun normalizeHistoryMarkerKey(key: String): String {
+        if (key.startsWith("app::") || key.startsWith("line::")) return key
+        return appHistoryKey(key)
     }
 
     private fun jsonArrayToStringList(array: JSONArray?): List<String> {

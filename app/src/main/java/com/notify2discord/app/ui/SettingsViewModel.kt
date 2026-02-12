@@ -2,6 +2,7 @@ package com.notify2discord.app.ui
 
 import android.app.Application
 import android.net.Uri
+import android.content.pm.ApplicationInfo
 import android.content.pm.LauncherApps
 import android.content.pm.PackageManager
 import androidx.lifecycle.AndroidViewModel
@@ -114,6 +115,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
     fun toggleSelected(packageName: String, selected: Boolean) {
         viewModelScope.launch {
             repository.toggleSelectedPackage(packageName, selected)
+        }
+    }
+
+    fun setCaptureHistoryWhenForwardingOff(enabled: Boolean) {
+        viewModelScope.launch {
+            repository.setCaptureHistoryWhenForwardingOff(enabled)
+        }
+    }
+
+    fun toggleHistoryCapturePackage(packageName: String, selected: Boolean) {
+        viewModelScope.launch {
+            repository.toggleHistoryCapturePackage(packageName, selected)
         }
     }
 
@@ -269,19 +282,38 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun clearNotificationHistoryByGroupKey(historyGroupKey: String) {
+        viewModelScope.launch {
+            repository.clearNotificationHistoryByGroupKey(historyGroupKey)
+        }
+    }
+
+    fun markHistoryRead(historyKey: String, readUntilPostTime: Long) {
+        viewModelScope.launch {
+            repository.markHistoryRead(historyKey, readUntilPostTime)
+        }
+    }
+
     fun markAppHistoryRead(packageName: String, readUntilPostTime: Long) {
         viewModelScope.launch {
             repository.markAppHistoryRead(packageName, readUntilPostTime)
         }
     }
 
-    fun saveBatteryReportConfig(enabled: Boolean, intervalMinutes: Int) {
+    fun saveBatteryReportConfig(
+        enabled: Boolean,
+        intervalMinutes: Int,
+        startHour: Int,
+        startMinute: Int
+    ) {
         viewModelScope.launch {
             val normalized = intervalMinutes.coerceIn(15, 1440)
             repository.saveBatteryReportConfig(
                 BatteryReportConfig(
                     enabled = enabled,
-                    intervalMinutes = normalized
+                    intervalMinutes = normalized,
+                    startHour = startHour.coerceIn(0, 23),
+                    startMinute = startMinute.coerceIn(0, 59)
                 )
             )
             _operationMessage.value = if (enabled) {
@@ -304,6 +336,18 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun saveBatteryNominalCapacity(capacityMah: Float?) {
+        viewModelScope.launch {
+            repository.saveBatteryNominalCapacityMah(capacityMah)
+            _operationMessage.value = if (capacityMah == null) {
+                "公称容量を未設定に戻しました"
+            } else {
+                "公称容量を保存しました"
+            }
+            refreshBatteryInfo()
+        }
+    }
+
     fun setBatteryGraphRangeDays(days: Int) {
         viewModelScope.launch {
             val normalized = when (days) {
@@ -319,7 +363,10 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
         viewModelScope.launch(Dispatchers.IO) {
             val settings = repository.getSettingsSnapshot()
             // 履歴の最大推定容量を参照して現在の推定劣化率を算出する
-            _currentBatterySnapshot.value = batteryInfoCollector.collect(settings.batteryHistory)
+            _currentBatterySnapshot.value = batteryInfoCollector.collect(
+                history = settings.batteryHistory,
+                nominalCapacityMah = settings.batteryNominalCapacityMah
+            )
         }
     }
 
@@ -378,22 +425,34 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
             val app = getApplication<Application>()
             val pm = app.packageManager
 
-            // 個人プロファイルのアプリ
-            val personalPackages = pm.getInstalledApplications(PackageManager.GET_META_DATA)
-                .associate { appInfo ->
-                    appInfo.packageName to pm.getApplicationLabel(appInfo).toString()
+            // 個人プロファイルのアプリ。システムアプリ判定も同時に持つ。
+            val personalApps = pm.getInstalledApplications(PackageManager.GET_META_DATA)
+                .map { appInfo ->
+                    AppInfo(
+                        packageName = appInfo.packageName,
+                        label = pm.getApplicationLabel(appInfo).toString(),
+                        isSystemApp = isSystemApp(appInfo)
+                    )
                 }
+            val personalPackageNames = personalApps.map { it.packageName }.toSet()
 
             // 仕事領域のアプリを追加（個人プロファイルに存在しないものだけ）
-            val workOnlyPackages = mutableMapOf<String, String>()
+            val workOnlyApps = mutableListOf<AppInfo>()
             try {
                 val launcherApps = app.getSystemService(LauncherApps::class.java)
                 if (launcherApps != null) {
                     for (profile in launcherApps.getProfiles()) {
                         for (activity in launcherApps.getActivityList(null, profile)) {
                             val pkg = activity.getComponentName().packageName
-                            if (!personalPackages.containsKey(pkg) && !workOnlyPackages.containsKey(pkg)) {
-                                workOnlyPackages[pkg] = "${activity.getLabel()} (仕事領域)"
+                            if (!personalPackageNames.contains(pkg) && workOnlyApps.none { it.packageName == pkg }) {
+                                val isSystem = runCatching {
+                                    isSystemApp(pm.getApplicationInfo(pkg, 0))
+                                }.getOrDefault(false)
+                                workOnlyApps += AppInfo(
+                                    packageName = pkg,
+                                    label = "${activity.getLabel()} (仕事領域)",
+                                    isSystemApp = isSystem
+                                )
                             }
                         }
                     }
@@ -402,9 +461,14 @@ class SettingsViewModel(application: Application) : AndroidViewModel(application
                 // 仕事領域が存在しない場合や取得できない場合は無視
             }
 
-            _apps.value = (personalPackages.map { (pkg, label) -> AppInfo(pkg, label) } +
-                workOnlyPackages.map { (pkg, label) -> AppInfo(pkg, label) })
+            _apps.value = (personalApps + workOnlyApps)
                 .sortedBy { it.label.lowercase() }
         }
+    }
+
+    private fun isSystemApp(appInfo: ApplicationInfo): Boolean {
+        val flags = appInfo.flags
+        return (flags and ApplicationInfo.FLAG_SYSTEM) != 0 ||
+            (flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0
     }
 }

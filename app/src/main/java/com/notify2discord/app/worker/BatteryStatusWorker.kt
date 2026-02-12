@@ -28,9 +28,15 @@ class BatteryStatusWorker(
                 return Result.success()
             }
 
-            val snapshot = collector.collect(settings.batteryHistory) ?: return Result.retry()
+            val snapshot = collector.collect(
+                history = settings.batteryHistory,
+                nominalCapacityMah = settings.batteryNominalCapacityMah
+            ) ?: return Result.retry()
             val percent = snapshot.levelPercent?.let { "${it}%" } ?: "取得不可"
-            val health = snapshot.estimatedHealthPercent?.let { "${"%.1f".format(it)}%" } ?: "推定不可"
+            val health = snapshot.estimatedHealthByDesignPercent
+                ?.let { "${"%.1f".format(it)}%（設計容量基準）" }
+                ?: snapshot.estimatedHealthPercent?.let { "${"%.1f".format(it)}%（履歴基準）" }
+                ?: "推定不可"
 
             val embed = DiscordEmbedPayload(
                 title = "バッテリー残量レポート",

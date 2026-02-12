@@ -68,6 +68,16 @@ class MainActivity : ComponentActivity() {
                     globalSnackbarHostState.showSnackbar(message)
                     viewModel.clearOperationMessage()
                 }
+                val navigateToTopLevel: (Screen) -> Unit = { screen ->
+                    navController.navigate(screen.route) {
+                        // トップレベル遷移のオプションを統一して戻れない状態を防ぐ
+                        popUpTo(navController.graph.findStartDestination().id) {
+                            saveState = true
+                        }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                }
 
                 Scaffold(
                     snackbarHost = { SnackbarHost(hostState = globalSnackbarHostState) },
@@ -86,14 +96,7 @@ class MainActivity : ComponentActivity() {
                                         ?.hierarchy
                                         ?.any { it.route == screen.route } == true,
                                     onClick = {
-                                        navController.navigate(screen.route) {
-                                            // どのタブからでも状態を維持しつつ安定遷移させる
-                                            popUpTo(navController.graph.findStartDestination().id) {
-                                                saveState = true
-                                            }
-                                            launchSingleTop = true
-                                            restoreState = true
-                                        }
+                                        navigateToTopLevel(screen)
                                     },
                                     icon = { Icon(icon, contentDescription = label) },
                                     label = { Text(label) }
@@ -114,12 +117,12 @@ class MainActivity : ComponentActivity() {
                                 hasInternalSnapshot = hasInternalSnapshot.value,
                                 onDismissRestorePrompt = viewModel::dismissRestorePrompt,
                                 onRestoreFromInternalSnapshot = viewModel::restoreFromInternalSnapshot,
-                                onExportSettingsNow = viewModel::exportSettingsNow,
                                 onExportSettingsToPickedFile = viewModel::exportSettingsToPickedFile,
                                 onImportSettingsFromPickedFile = viewModel::importSettingsFromPickedFile,
                                 onSaveWebhook = viewModel::saveWebhookUrl,
                                 onRecheckWebhook = viewModel::recheckWebhook,
                                 onToggleForwarding = viewModel::setForwardingEnabled,
+                                onToggleCaptureHistoryWhenForwardingOff = viewModel::setCaptureHistoryWhenForwardingOff,
                                 onOpenNotificationAccess = {
                                     startActivity(Intent(android.provider.Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                                 },
@@ -131,7 +134,6 @@ class MainActivity : ComponentActivity() {
                                         startActivity(intent)
                                     }
                                 },
-                                onOpenRules = { navController.navigate(Screen.Rules.route) },
                                 onSetThemeMode = viewModel::setThemeMode,
                                 onSetRetentionDays = viewModel::setRetentionDays,
                                 onCleanupExpired = viewModel::cleanupExpiredRecords
@@ -143,6 +145,7 @@ class MainActivity : ComponentActivity() {
                                 state = state.value,
                                 apps = apps.value,
                                 onToggleSelected = viewModel::toggleSelected,
+                                onToggleHistoryCapture = viewModel::toggleHistoryCapturePackage,
                                 onSetAppWebhook = viewModel::setAppWebhook,
                                 onSetAppTemplate = viewModel::saveAppTemplate
                             )
@@ -166,7 +169,8 @@ class MainActivity : ComponentActivity() {
                                 onRefreshBatteryInfo = viewModel::refreshBatteryInfo,
                                 onSaveBatteryReportConfig = viewModel::saveBatteryReportConfig,
                                 onSaveBatteryHistoryEnabled = viewModel::saveBatteryHistoryEnabled,
-                                onSetBatteryGraphRangeDays = viewModel::setBatteryGraphRangeDays
+                                onSetBatteryGraphRangeDays = viewModel::setBatteryGraphRangeDays,
+                                onSaveBatteryNominalCapacity = viewModel::saveBatteryNominalCapacity
                             )
                         }
 
@@ -174,12 +178,14 @@ class MainActivity : ComponentActivity() {
                             NotificationHistoryScreen(
                                 history = history.value,
                                 readMarkers = historyReadMarkers.value,
+                                lineThreadProfiles = state.value.lineThreadProfiles,
                                 onDeleteRecord = viewModel::deleteNotificationRecord,
                                 onDeleteRecords = viewModel::deleteNotificationRecords,
                                 onClearAll = viewModel::clearNotificationHistory,
                                 onClearByApp = viewModel::clearNotificationHistoryByApp,
                                 onClearByApps = viewModel::clearNotificationHistoryByApps,
-                                onMarkAppAsRead = viewModel::markAppHistoryRead
+                                onClearByHistoryGroupKey = viewModel::clearNotificationHistoryByGroupKey,
+                                onMarkHistoryAsRead = viewModel::markHistoryRead
                             )
                         }
                     }

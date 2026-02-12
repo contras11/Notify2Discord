@@ -2,7 +2,9 @@ package com.notify2discord.app.data
 
 data class BatteryReportConfig(
     val enabled: Boolean = false,
-    val intervalMinutes: Int = 60
+    val intervalMinutes: Int = 60,
+    val startHour: Int = 9,
+    val startMinute: Int = 0
 )
 
 data class BatteryHistoryConfig(
@@ -25,8 +27,17 @@ data class BatterySnapshot(
     val currentAverageUa: Int?,
     val energyCounterNwh: Long?,
     val cycleCount: Int?,
+    val designCapacityMah: Float?,
     val estimatedFullChargeMah: Float?,
-    val estimatedHealthPercent: Float?
+    val estimatedHealthPercent: Float?,
+    val estimatedHealthByDesignPercent: Float?
+)
+
+data class LineThreadProfile(
+    val threadKey: String,
+    val displayName: String,
+    val iconBase64Png: String?,
+    val updatedAt: Long
 )
 
 data class SettingsState(
@@ -49,6 +60,10 @@ data class SettingsState(
     val batteryReportConfig: BatteryReportConfig = BatteryReportConfig(),
     val batteryHistoryConfig: BatteryHistoryConfig = BatteryHistoryConfig(),
     val batteryHistory: List<BatterySnapshot> = emptyList(),
+    val captureHistoryWhenForwardingOff: Boolean = false,
+    val historyCapturePackages: Set<String> = emptySet(),
+    val batteryNominalCapacityMah: Float? = null,
+    val lineThreadProfiles: Map<String, LineThreadProfile> = emptyMap(),
     val uiModeRulesSimple: Boolean = true,
     val lastBackupAt: Long? = null,
     val lastManualBackupAt: Long? = null,
@@ -56,7 +71,7 @@ data class SettingsState(
 ) {
     companion object {
         const val DEFAULT_TEMPLATE = "【{app}】\nタイトル: {title}\n本文: {text}\n受信時刻: {time}"
-        const val BACKUP_SCHEMA_VERSION = 2
+        const val BACKUP_SCHEMA_VERSION = 4
     }
 }
 

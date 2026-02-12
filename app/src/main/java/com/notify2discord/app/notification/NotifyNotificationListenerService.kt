@@ -3,13 +3,18 @@ package com.notify2discord.app.notification
 import android.app.Notification
 import android.content.ComponentName
 import android.content.pm.LauncherApps
+import android.graphics.Bitmap
 import android.os.Build
 import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.util.Base64
+import androidx.core.graphics.drawable.toBitmap
+import com.notify2discord.app.data.LineThreadProfile
 import com.notify2discord.app.data.NotificationRecord
 import com.notify2discord.app.data.SettingsRepository
 import com.notify2discord.app.notification.model.NotificationPayload
+import java.io.ByteArrayOutputStream
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,6 +26,7 @@ class NotifyNotificationListenerService : NotificationListenerService() {
     private lateinit var repository: SettingsRepository
     private lateinit var pipeline: NotificationDispatchPipeline
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val linePackageName = "jp.naver.line.android"
 
     override fun onCreate() {
         super.onCreate()
@@ -48,46 +54,109 @@ class NotifyNotificationListenerService : NotificationListenerService() {
         val notification = sbn.notification
         serviceScope.launch {
             val settings = repository.getSettingsSnapshot()
-            if (!settings.forwardingEnabled) return@launch
-
-            // ホワイトリスト判定：空なら全アプリ転送、非空なら選択したアプリのみ転送
-            if (settings.selectedPackages.isNotEmpty() && sbn.packageName !in settings.selectedPackages) {
-                return@launch
-            }
-
             val appName = resolveAppName(sbn.packageName)
-            val title = notification.extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
-            val text = extractNotificationText(notification)
+            val parsed = parseNotificationMeta(
+                packageName = sbn.packageName,
+                notification = notification
+            )
 
             val payload = NotificationPayload(
                 packageName = sbn.packageName,
                 appName = appName,
-                title = title,
-                text = text,
+                title = parsed.title,
+                text = parsed.text,
                 postTime = sbn.postTime,
                 channelId = sbn.notification.channelId.orEmpty(),
                 importance = sbn.notification.priority,
                 isSummary = (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
             )
 
-            val accepted = pipeline.process(
-                settings = settings,
-                payload = payload,
-                sourceNotification = notification
-            )
-            if (!accepted) return@launch
+            // selectedPackages が空なら全アプリが転送対象
+            val isForwardingTarget = settings.selectedPackages.isEmpty() ||
+                sbn.packageName in settings.selectedPackages
 
-            // 通知履歴は実際に送信対象となったもののみ保存
+            var acceptedForForwarding = false
+            if (settings.forwardingEnabled && isForwardingTarget) {
+                acceptedForForwarding = pipeline.process(
+                    settings = settings,
+                    payload = payload,
+                    sourceNotification = notification
+                )
+            }
+
+            val shouldStoreAsUnsentTarget = settings.captureHistoryWhenForwardingOff &&
+                sbn.packageName in settings.historyCapturePackages &&
+                (!settings.forwardingEnabled || !isForwardingTarget)
+            val shouldStoreHistory = acceptedForForwarding || shouldStoreAsUnsentTarget
+            if (!shouldStoreHistory) return@launch
+
             val record = NotificationRecord(
                 id = System.nanoTime(),
                 packageName = sbn.packageName,
                 appName = appName,
-                title = title,
-                text = text,
-                postTime = sbn.postTime
+                title = parsed.title,
+                text = parsed.text,
+                postTime = sbn.postTime,
+                historyGroupKey = parsed.historyGroupKey,
+                conversationName = parsed.conversationName,
+                senderName = parsed.senderName
             )
             repository.saveNotificationRecord(record)
+            parsed.lineThreadProfile?.let { repository.upsertLineThreadProfile(it) }
         }
+    }
+
+    private fun parseNotificationMeta(
+        packageName: String,
+        notification: Notification
+    ): ParsedNotificationMeta {
+        val extras = notification.extras
+        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
+        val text = extractNotificationText(notification)
+        if (packageName != linePackageName) {
+            return ParsedNotificationMeta(
+                title = title,
+                text = text,
+                historyGroupKey = null,
+                conversationName = null,
+                senderName = null,
+                lineThreadProfile = null
+            )
+        }
+
+        val messages = extractMessagingMessages(extras)
+        val latestMessage = messages.lastOrNull()
+        val senderName = latestMessage?.senderPerson?.name?.toString()?.trim()
+            ?.takeIf { it.isNotBlank() }
+            ?: latestMessage?.sender?.toString()?.trim()?.takeIf { it.isNotBlank() }
+
+        val conversationName = listOf(
+            extras.getCharSequence(Notification.EXTRA_CONVERSATION_TITLE)?.toString(),
+            extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString(),
+            title
+        ).firstOrNull { !it.isNullOrBlank() }?.trim()
+        val historyGroupKey = conversationName
+            ?.let(::normalizeLineConversationKey)
+            ?.takeIf { it.isNotBlank() }
+            ?.let { "line::$it" }
+        val iconBase64 = extractLineIconBase64(notification, latestMessage)
+        val lineProfile = historyGroupKey?.let { threadKey ->
+            LineThreadProfile(
+                threadKey = threadKey,
+                displayName = conversationName ?: senderName ?: "LINE",
+                iconBase64Png = iconBase64,
+                updatedAt = System.currentTimeMillis()
+            )
+        }
+
+        return ParsedNotificationMeta(
+            title = title,
+            text = text,
+            historyGroupKey = historyGroupKey,
+            conversationName = conversationName,
+            senderName = senderName,
+            lineThreadProfile = lineProfile
+        )
     }
 
     private fun resolveAppName(packageName: String): String {
@@ -134,13 +203,15 @@ class NotifyNotificationListenerService : NotificationListenerService() {
         return extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString().orEmpty()
     }
 
-    private fun extractMessagingStyleText(extras: Bundle): String {
-        val raw = extras.get(Notification.EXTRA_MESSAGES) as? Array<*> ?: return ""
+    private fun extractMessagingMessages(extras: Bundle): List<Notification.MessagingStyle.Message> {
+        val raw = extras.get(Notification.EXTRA_MESSAGES) as? Array<*> ?: return emptyList()
         val bundles = raw.mapNotNull { it as? Bundle }.toTypedArray()
-        if (bundles.isEmpty()) return ""
+        if (bundles.isEmpty()) return emptyList()
+        return Notification.MessagingStyle.Message.getMessagesFromBundleArray(bundles)
+    }
 
-        val lines = Notification.MessagingStyle.Message
-            .getMessagesFromBundleArray(bundles)
+    private fun extractMessagingStyleText(extras: Bundle): String {
+        val lines = extractMessagingMessages(extras)
             .mapNotNull { message ->
                 val body = message.text?.toString().orEmpty().trim()
                 if (body.isBlank()) return@mapNotNull null
@@ -150,4 +221,61 @@ class NotifyNotificationListenerService : NotificationListenerService() {
             }
         return lines.joinToString(separator = "\n")
     }
+
+    private fun extractLineIconBase64(
+        notification: Notification,
+        latestMessage: Notification.MessagingStyle.Message?
+    ): String? {
+        latestMessage?.senderPerson?.icon
+            ?.let(::iconToBase64Png)
+            ?.let { return it }
+
+        val extras = notification.extras
+        extras.getParcelable(Notification.EXTRA_LARGE_ICON, android.graphics.drawable.Icon::class.java)
+            ?.let(::iconToBase64Png)
+            ?.let { return it }
+        extras.getParcelable(Notification.EXTRA_LARGE_ICON_BIG, android.graphics.drawable.Icon::class.java)
+            ?.let(::iconToBase64Png)
+            ?.let { return it }
+
+        extras.getParcelable(Notification.EXTRA_LARGE_ICON, Bitmap::class.java)
+            ?.let(::bitmapToBase64Png)
+            ?.let { return it }
+        extras.getParcelable(Notification.EXTRA_LARGE_ICON_BIG, Bitmap::class.java)
+            ?.let(::bitmapToBase64Png)
+            ?.let { return it }
+
+        return null
+    }
+
+    private fun iconToBase64Png(icon: android.graphics.drawable.Icon): String? {
+        val bitmap = runCatching {
+            // SDK差異で Icon#getBitmap が参照できない環境があるため Drawable 経由で統一する
+            icon.loadDrawable(this)?.toBitmap(128, 128)
+        }.getOrNull() ?: return null
+        return bitmapToBase64Png(bitmap)
+    }
+
+    private fun bitmapToBase64Png(bitmap: Bitmap): String? {
+        return runCatching {
+            val output = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+            Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP)
+        }.getOrNull()
+    }
+
+    private fun normalizeLineConversationKey(raw: String): String {
+        return raw.trim()
+            .lowercase()
+            .replace(Regex("\\s+"), " ")
+    }
 }
+
+private data class ParsedNotificationMeta(
+    val title: String,
+    val text: String,
+    val historyGroupKey: String?,
+    val conversationName: String?,
+    val senderName: String?,
+    val lineThreadProfile: LineThreadProfile?
+)

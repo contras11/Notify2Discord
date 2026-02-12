@@ -20,7 +20,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -67,16 +66,15 @@ fun SettingsScreen(
     hasInternalSnapshot: Boolean,
     onDismissRestorePrompt: () -> Unit,
     onRestoreFromInternalSnapshot: () -> Unit,
-    onExportSettingsNow: () -> Unit,
     onExportSettingsToPickedFile: (Uri) -> Unit,
     onImportSettingsFromPickedFile: (Uri) -> Unit,
     onSaveWebhook: (String) -> Unit,
     onRecheckWebhook: (String) -> Unit,
     onToggleForwarding: (Boolean) -> Unit,
+    onToggleCaptureHistoryWhenForwardingOff: (Boolean) -> Unit,
     onOpenNotificationAccess: () -> Unit,
     onTestSend: () -> Unit,
     onRequestIgnoreBatteryOptimizations: () -> Unit,
-    onOpenRules: () -> Unit,
     onSetThemeMode: (ThemeMode) -> Unit,
     onSetRetentionDays: (Int) -> Unit,
     onCleanupExpired: () -> Unit
@@ -106,7 +104,6 @@ fun SettingsScreen(
     var pendingSaveUrl by remember { mutableStateOf<String?>(null) }
     var pendingSaveMessage by remember { mutableStateOf<String?>(null) }
     var showWebhookHealthDetails by rememberSaveable { mutableStateOf(false) }
-    var showExportOptionsDialog by rememberSaveable { mutableStateOf(false) }
 
     LaunchedEffect(state.webhookUrl) {
         if (webhookText != state.webhookUrl) {
@@ -332,9 +329,7 @@ fun SettingsScreen(
             Divider()
 
             Card(
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
-                )
+                colors = AppCardColors.normal()
             ) {
                 Column(
                     modifier = Modifier
@@ -351,14 +346,11 @@ fun SettingsScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    Text(
-                        text = "既定の保存先: Documents/Notify2Discord",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
                     AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
                         Button(
-                            onClick = { showExportOptionsDialog = true },
+                            onClick = {
+                                createBackupLauncher.launch(generateBackupFileName())
+                            },
                             modifier = if (compact) Modifier.fillMaxWidth() else Modifier
                         ) {
                             Text("エクスポート")
@@ -373,8 +365,9 @@ fun SettingsScreen(
                             Text("インポート")
                         }
                     }
-                    if (state.lastBackupAt != null) {
-                        formatEpochMillis(state.lastBackupAt, dateTimeFormatter)?.let { timeText ->
+                    val latestBackupMillis = state.lastBackupAt ?: state.lastManualBackupAt
+                    if (latestBackupMillis != null) {
+                        formatEpochMillis(latestBackupMillis, dateTimeFormatter)?.let { timeText ->
                             Text(
                                 text = "最終バックアップ: $timeText",
                                 style = MaterialTheme.typography.bodySmall,
@@ -382,23 +375,7 @@ fun SettingsScreen(
                             )
                         }
                     }
-                    if (state.lastManualBackupAt != null) {
-                        formatEpochMillis(state.lastManualBackupAt, dateTimeFormatter)?.let { timeText ->
-                            Text(
-                                text = "最終手動バックアップ: $timeText",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
                 }
-            }
-
-            Button(
-                onClick = onOpenRules,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("ルール設定を開く")
             }
 
             Divider()
@@ -414,6 +391,23 @@ fun SettingsScreen(
                     onCheckedChange = onToggleForwarding
                 )
             }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(text = stringResource(id = R.string.capture_unsent_history_toggle))
+                Switch(
+                    checked = state.captureHistoryWhenForwardingOff,
+                    onCheckedChange = onToggleCaptureHistoryWhenForwardingOff
+                )
+            }
+            Text(
+                text = stringResource(id = R.string.capture_unsent_history_hint),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
 
             Divider()
 
@@ -535,38 +529,6 @@ fun SettingsScreen(
                 textAlign = TextAlign.Center
             )
         }
-    }
-
-    if (showExportOptionsDialog) {
-        AlertDialog(
-            onDismissRequest = { showExportOptionsDialog = false },
-            title = { Text("エクスポート方法") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = "保存方法を選んでください。",
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                    TextButton(onClick = {
-                        showExportOptionsDialog = false
-                        onExportSettingsNow()
-                    }) {
-                        Text("既定フォルダに保存")
-                    }
-                    TextButton(onClick = {
-                        showExportOptionsDialog = false
-                        createBackupLauncher.launch(generateBackupFileName())
-                    }) {
-                        Text("保存先を選んで保存")
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showExportOptionsDialog = false }) {
-                    Text("閉じる")
-                }
-            }
-        )
     }
 
     if (showRestorePrompt) {

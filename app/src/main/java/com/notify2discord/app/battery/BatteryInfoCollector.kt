@@ -8,7 +8,7 @@ import com.notify2discord.app.data.BatterySnapshot
 import kotlin.math.roundToInt
 
 class BatteryInfoCollector(private val context: Context) {
-    fun collect(history: List<BatterySnapshot>): BatterySnapshot? {
+    fun collect(history: List<BatterySnapshot>, nominalCapacityMah: Float?): BatterySnapshot? {
         // Stickyブロードキャストから最新のバッテリー状態を取得する
         val batteryIntent = context.registerReceiver(
             null,
@@ -41,6 +41,10 @@ class BatteryInfoCollector(private val context: Context) {
         val energyCounterNwh = manager.longProperty(BatteryManager.BATTERY_PROPERTY_ENERGY_COUNTER)
         // API差異で定数が無い場合があるため、存在時のみ反射で取得する
         val cycleCount = cycleCountPropertyId?.let { manager.intProperty(it) }
+        val designCapacityMah = designCapacityPropertyIds.asSequence()
+            .mapNotNull { propertyId -> manager.intProperty(propertyId) }
+            .map { raw -> normalizeCapacityToMah(raw) }
+            .firstOrNull()
 
         // 現在残容量と残量%から満充電容量を推定する（端末依存で誤差あり）
         val estimatedFullChargeMah = if (chargeCounterUah != null && levelPercent != null && levelPercent > 0) {
@@ -56,6 +60,19 @@ class BatteryInfoCollector(private val context: Context) {
         // 過去最大推定容量を100%基準に相対的な健康度を算出する
         val estimatedHealthPercent = if (baselineMah != null && baselineMah > 0f && estimatedFullChargeMah != null) {
             (estimatedFullChargeMah / baselineMah * 100f).coerceIn(0f, 120f)
+        } else {
+            null
+        }
+        val effectiveNominalCapacityMah = nominalCapacityMah
+            ?.takeIf { it > 0f }
+            ?: designCapacityMah
+        // 手入力公称容量 > 端末設計容量 の優先順で劣化率を算出する
+        val estimatedHealthByDesignPercent = if (
+            effectiveNominalCapacityMah != null &&
+            effectiveNominalCapacityMah > 0f &&
+            estimatedFullChargeMah != null
+        ) {
+            (estimatedFullChargeMah / effectiveNominalCapacityMah * 100f).coerceIn(0f, 120f)
         } else {
             null
         }
@@ -75,8 +92,10 @@ class BatteryInfoCollector(private val context: Context) {
             currentAverageUa = currentAverageUa,
             energyCounterNwh = energyCounterNwh,
             cycleCount = cycleCount,
+            designCapacityMah = designCapacityMah,
             estimatedFullChargeMah = estimatedFullChargeMah,
-            estimatedHealthPercent = estimatedHealthPercent
+            estimatedHealthPercent = estimatedHealthPercent,
+            estimatedHealthByDesignPercent = estimatedHealthByDesignPercent
         )
     }
 
@@ -113,6 +132,17 @@ private val cycleCountPropertyId: Int? by lazy {
     }.getOrNull()
 }
 
+private val designCapacityPropertyIds: List<Int> by lazy {
+    listOf(
+        "BATTERY_PROPERTY_CHARGE_FULL_DESIGN_CAPACITY",
+        "BATTERY_PROPERTY_CHARGE_FULL"
+    ).mapNotNull { fieldName ->
+        runCatching {
+            BatteryManager::class.java.getField(fieldName).getInt(null)
+        }.getOrNull()
+    }
+}
+
 private fun BatteryManager?.intProperty(id: Int): Int? {
     val value = this?.getIntProperty(id) ?: Int.MIN_VALUE
     return if (value == Int.MIN_VALUE) null else value
@@ -121,4 +151,12 @@ private fun BatteryManager?.intProperty(id: Int): Int? {
 private fun BatteryManager?.longProperty(id: Int): Long? {
     val value = this?.getLongProperty(id) ?: Long.MIN_VALUE
     return if (value == Long.MIN_VALUE) null else value
+}
+
+private fun normalizeCapacityToMah(rawValue: Int): Float {
+    return if (rawValue > 10_000) {
+        rawValue / 1000f
+    } else {
+        rawValue.toFloat()
+    }
 }

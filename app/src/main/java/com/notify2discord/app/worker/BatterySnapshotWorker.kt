@@ -19,7 +19,10 @@ class BatterySnapshotWorker(
             return Result.success()
         }
 
-        val snapshot = collector.collect(settings.batteryHistory) ?: return Result.retry()
+        val snapshot = collector.collect(
+            history = settings.batteryHistory,
+            nominalCapacityMah = settings.batteryNominalCapacityMah
+        ) ?: return Result.retry()
         repository.appendBatterySnapshot(snapshot)
         return Result.success()
     }

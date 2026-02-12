@@ -1,5 +1,6 @@
 package com.notify2discord.app.ui
 
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -18,8 +19,7 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.notify2discord.app.data.AppInfo
 import com.notify2discord.app.data.SettingsState
@@ -31,11 +31,29 @@ private enum class AppSortOrder {
     WEBHOOK_FIRST
 }
 
+private enum class SystemAppFilterMode {
+    NORMAL_ONLY,
+    ALL,
+    SYSTEM_ONLY
+}
+
 private fun sortLabel(order: AppSortOrder): String = when (order) {
     AppSortOrder.NAME_ASC -> "アルファベット順 (A→Z)"
     AppSortOrder.NAME_DESC -> "アルファベット逆順 (Z→A)"
     AppSortOrder.SELECTED_FIRST -> "選択済みが先"
     AppSortOrder.WEBHOOK_FIRST -> "個別Webhook設定済みが先"
+}
+
+private fun systemFilterLabel(mode: SystemAppFilterMode): String = when (mode) {
+    SystemAppFilterMode.NORMAL_ONLY -> "通常のみ"
+    SystemAppFilterMode.ALL -> "すべて"
+    SystemAppFilterMode.SYSTEM_ONLY -> "システム"
+}
+
+private fun isVisibleBySystemFilter(app: AppInfo, mode: SystemAppFilterMode): Boolean = when (mode) {
+    SystemAppFilterMode.NORMAL_ONLY -> !app.isSystemApp
+    SystemAppFilterMode.ALL -> true
+    SystemAppFilterMode.SYSTEM_ONLY -> app.isSystemApp
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -44,6 +62,7 @@ fun SelectedAppsScreen(
     state: SettingsState,
     apps: List<AppInfo>,
     onToggleSelected: (String, Boolean) -> Unit,
+    onToggleHistoryCapture: (String, Boolean) -> Unit,
     onSetAppWebhook: (String, String) -> Unit,
     onSetAppTemplate: (String, String) -> Unit
 ) {
@@ -51,12 +70,16 @@ fun SelectedAppsScreen(
     var showWebhookDialog by remember { mutableStateOf(false) }
     var searchQuery by remember { mutableStateOf("") }
     var sortOrder by remember { mutableStateOf(AppSortOrder.NAME_ASC) }
+    var systemFilterMode by rememberSaveable { mutableStateOf(SystemAppFilterMode.NORMAL_ONLY) }
+    var showFilterMenu by remember { mutableStateOf(false) }
     var showSortMenu by remember { mutableStateOf(false) }
     var showUsageDialog by rememberSaveable { mutableStateOf(false) }
     val listState = rememberLazyListState()
-    val isDarkTheme = MaterialTheme.colorScheme.background.luminance() < 0.5f
-    val headerCardColor = if (isDarkTheme) Color(0xFF143247) else Color(0xFFEAF6FF)
-    val headerTextColor = if (isDarkTheme) Color(0xFFD6EDFF) else MaterialTheme.colorScheme.onSurfaceVariant
+    val hideGuideCard by remember {
+        derivedStateOf {
+            listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset > 0
+        }
+    }
 
     LaunchedEffect(sortOrder) {
         listState.scrollToItem(0)
@@ -73,6 +96,39 @@ fun SelectedAppsScreen(
                     actionIconContentColor = MaterialTheme.colorScheme.onPrimary
                 ),
                 actions = {
+                    Box {
+                        TextButton(onClick = { showFilterMenu = true }) {
+                            Text(
+                                text = systemFilterLabel(systemFilterMode),
+                                color = MaterialTheme.colorScheme.onPrimary,
+                                maxLines = 1
+                            )
+                            Icon(
+                                imageVector = Icons.Default.ExpandMore,
+                                contentDescription = "表示フィルター",
+                                tint = MaterialTheme.colorScheme.onPrimary
+                            )
+                        }
+                        DropdownMenu(
+                            expanded = showFilterMenu,
+                            onDismissRequest = { showFilterMenu = false }
+                        ) {
+                            SystemAppFilterMode.values().forEach { mode ->
+                                DropdownMenuItem(
+                                    text = { Text(systemFilterLabel(mode)) },
+                                    onClick = {
+                                        systemFilterMode = mode
+                                        showFilterMenu = false
+                                    },
+                                    trailingIcon = {
+                                        if (systemFilterMode == mode) {
+                                            Icon(Icons.Default.Check, null)
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
                     Box {
                         IconButton(onClick = { showSortMenu = true }) {
                             Icon(Icons.Default.Sort, "ソート")
@@ -101,69 +157,42 @@ fun SelectedAppsScreen(
             )
         }
     ) { padding ->
-        val appsWithCustomWebhook = apps.filter { state.appWebhooks.containsKey(it.packageName) }.size
+        val appsWithCustomWebhook = apps.count { state.appWebhooks.containsKey(it.packageName) }
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
         ) {
-            // 説明セクション
-            Card(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = headerCardColor
-                )
-            ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
+            // 説明セクションは一覧スクロール時に自動で隠す
+            AnimatedVisibility(visible = !hideGuideCard) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    colors = AppCardColors.emphasized()
                 ) {
-                    Text(
-                        text = "転送対象と個別Webhookをここで管理できます。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = headerTextColor
-                    )
-                    AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
-                        Surface(
-                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
-                            shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.surface
+                    Column(
+                        modifier = Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
                             Text(
-                                text = "転送中: ${state.selectedPackages.size} 個",
+                                text = "転送対象と個別Webhookを管理できます。",
                                 style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                color = MaterialTheme.colorScheme.onSurface
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
                             )
-                        }
-                        Surface(
-                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
-                            shape = MaterialTheme.shapes.small,
-                            color = MaterialTheme.colorScheme.surface
-                        ) {
-                            Text(
-                                text = "個別Webhook: $appsWithCustomWebhook 個",
-                                style = MaterialTheme.typography.bodySmall,
-                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                                color = MaterialTheme.colorScheme.onSurface
-                            )
-                        }
-                    }
-                    AdaptiveActionGroup(maxItemsInRow = 2) { _ ->
-                        TextButton(
-                            onClick = { showUsageDialog = true }
-                        ) {
-                            Text("使い方など")
-                        }
-                        TextButton(
-                            onClick = {
-                                searchQuery = ""
-                                sortOrder = AppSortOrder.NAME_ASC
+                            TextButton(
+                                onClick = { showUsageDialog = true }
+                            ) {
+                                Text("使い方など")
                             }
-                        ) {
-                            Text("検索と並び順リセット")
                         }
                     }
                 }
@@ -180,13 +209,36 @@ fun SelectedAppsScreen(
                 leadingIcon = { Icon(Icons.Default.Search, null) },
                 singleLine = true
             )
+            Text(
+                text = "転送中 ${state.selectedPackages.size} 件 / 履歴 ${state.historyCapturePackages.size} 件 / 個別Webhook $appsWithCustomWebhook 件",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp)
+            )
+            val hiddenForwardingCount = apps.count {
+                !isVisibleBySystemFilter(it, systemFilterMode) &&
+                    state.selectedPackages.contains(it.packageName)
+            }
+            val hiddenHistoryCount = apps.count {
+                !isVisibleBySystemFilter(it, systemFilterMode) &&
+                    state.historyCapturePackages.contains(it.packageName)
+            }
+            if (hiddenForwardingCount > 0 || hiddenHistoryCount > 0) {
+                Text(
+                    text = "現在の表示外: 転送 $hiddenForwardingCount 件 / 履歴 $hiddenHistoryCount 件",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                )
+            }
 
             // 検索 → ソート の順に適用
-            val filteredApps = remember(apps, searchQuery) {
+            val filteredApps = remember(apps, searchQuery, systemFilterMode) {
                 apps.filter { app ->
-                    searchQuery.isBlank() ||
-                    app.label.contains(searchQuery, ignoreCase = true) ||
-                    app.packageName.contains(searchQuery, ignoreCase = true)
+                    val matchesQuery = searchQuery.isBlank() ||
+                        app.label.contains(searchQuery, ignoreCase = true) ||
+                        app.packageName.contains(searchQuery, ignoreCase = true)
+                    matchesQuery && isVisibleBySystemFilter(app, systemFilterMode)
                 }
             }
 
@@ -211,19 +263,25 @@ fun SelectedAppsScreen(
 
             // アプリリスト
             LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
                 state = listState,
                 contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 items(sortedApps, key = { it.packageName }) { app ->
                     val selected = state.selectedPackages.contains(app.packageName)
+                    val historyCapture = state.historyCapturePackages.contains(app.packageName)
                     val hasCustomWebhook = state.appWebhooks.containsKey(app.packageName)
 
                     AppListItem(
                         app = app,
                         selected = selected,
+                        historyCapture = historyCapture,
                         hasCustomWebhook = hasCustomWebhook,
                         onToggleSelected = { onToggleSelected(app.packageName, it) },
+                        onToggleHistoryCapture = { onToggleHistoryCapture(app.packageName, it) },
                         onSetWebhook = {
                             selectedApp = app
                             showWebhookDialog = true
@@ -241,7 +299,10 @@ fun SelectedAppsScreen(
             text = {
                 Text(
                     text = "・チェックを入れたアプリだけ転送します\n" +
+                        "・転送対象がONならDiscordへ転送されます\n" +
                         "・何も選ばない場合は全アプリを転送します\n" +
+                        "・表示フィルターで通常のみ/すべて/システムを切り替えできます\n" +
+                        "・履歴対象は、転送しない通知をアプリ内に残すための設定です\n" +
                         "・右端の追加/編集ボタンで個別Webhookを設定できます\n" +
                         "・個別Webhookが未設定なら共通Webhookを使います",
                     style = MaterialTheme.typography.bodySmall
@@ -280,20 +341,17 @@ fun SelectedAppsScreen(
 private fun AppListItem(
     app: AppInfo,
     selected: Boolean,
+    historyCapture: Boolean,
     hasCustomWebhook: Boolean,
     onToggleSelected: (Boolean) -> Unit,
+    onToggleHistoryCapture: (Boolean) -> Unit,
     onSetWebhook: () -> Unit
 ) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 16.dp, vertical = 4.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (hasCustomWebhook)
-                MaterialTheme.colorScheme.surfaceVariant
-            else
-                MaterialTheme.colorScheme.surface
-        )
+        colors = if (hasCustomWebhook) AppCardColors.emphasized() else AppCardColors.normal()
     ) {
         Row(
             modifier = Modifier
@@ -301,15 +359,10 @@ private fun AppListItem(
                 .padding(horizontal = 8.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Checkbox(
-                checked = selected,
-                onCheckedChange = onToggleSelected
-            )
-
             Column(
                 modifier = Modifier
                     .weight(1f)
-                    .padding(horizontal = 12.dp)
+                    .padding(start = 12.dp)
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -338,6 +391,38 @@ private fun AppListItem(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.tertiary
                     )
+                }
+                val isWideScreen = androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp >= 600
+                if (isWideScreen) {
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        FilterChip(
+                            selected = selected,
+                            onClick = { onToggleSelected(!selected) },
+                            label = { Text("転送対象") }
+                        )
+                        FilterChip(
+                            selected = historyCapture,
+                            onClick = { onToggleHistoryCapture(!historyCapture) },
+                            label = { Text("履歴対象（未送信時）") }
+                        )
+                    }
+                } else {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = selected,
+                                onCheckedChange = onToggleSelected
+                            )
+                            Text("転送対象", style = MaterialTheme.typography.bodySmall)
+                        }
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Checkbox(
+                                checked = historyCapture,
+                                onCheckedChange = onToggleHistoryCapture
+                            )
+                            Text("履歴対象（未送信時）", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
             }
 
@@ -392,9 +477,7 @@ private fun WebhookConfigDialog(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
+                    colors = AppCardColors.normal()
                 ) {
                     Column(
                         modifier = Modifier.padding(12.dp),
@@ -470,9 +553,7 @@ private fun WebhookConfigDialog(
                 )
 
                 Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceVariant
-                    )
+                    colors = AppCardColors.normal()
                 ) {
                     Column(
                         modifier = Modifier.padding(12.dp),
