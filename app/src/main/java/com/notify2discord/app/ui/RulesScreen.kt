@@ -28,6 +28,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -110,6 +111,7 @@ fun RulesScreen(
     var simpleFilterPreset by remember(state.filterConfig) { mutableStateOf(resolveFilterPreset(state.filterConfig)) }
     var dedupePreset by remember(state.dedupeConfig) { mutableStateOf(resolveDedupePreset(state.dedupeConfig)) }
     var quietPreset by remember(state.quietHoursConfig) { mutableStateOf(resolveQuietPreset(state.quietHoursConfig)) }
+    var routingExpanded by rememberSaveable { mutableStateOf(false) }
 
     val routingRules = remember(state.routingRules) {
         mutableStateListOf<RoutingRule>().apply {
@@ -125,6 +127,59 @@ fun RulesScreen(
         "パッケージ名" to "{package}"
     )
     val previewText = buildTemplatePreview(templateText)
+    val resolvedFilter = resolveFilterConfig(
+        isSimpleMode = isSimpleMode,
+        preset = simpleFilterPreset,
+        keywordsText = filterKeywordsText,
+        original = FilterConfig(
+            enabled = filterEnabled,
+            keywords = parseCsv(filterKeywordsText),
+            useRegex = filterUseRegex,
+            regexPattern = filterRegexPattern,
+            channelIds = parseCsv(filterChannelIdsText).toSet(),
+            minImportance = filterMinImportanceText.toIntOrNull() ?: Int.MIN_VALUE,
+            excludeSummary = excludeSummary
+        )
+    )
+    val resolvedDedupe = resolveDedupeConfig(
+        isSimpleMode = isSimpleMode,
+        preset = dedupePreset,
+        original = DedupeConfig(
+            enabled = dedupeEnabled,
+            contentHashEnabled = contentHashEnabled,
+            titleLatestOnly = titleLatestOnly,
+            windowSeconds = dedupeWindowText.toIntOrNull() ?: state.dedupeConfig.windowSeconds
+        )
+    )
+    val resolvedRateLimit = resolveRateLimitConfig(
+        isSimpleMode = isSimpleMode,
+        preset = dedupePreset,
+        aggregationMode = aggregationMode,
+        original = RateLimitConfig(
+            enabled = rateEnabled,
+            maxPerWindow = rateMaxText.toIntOrNull() ?: state.rateLimitConfig.maxPerWindow,
+            windowSeconds = rateWindowText.toIntOrNull() ?: state.rateLimitConfig.windowSeconds,
+            aggregateWindowSeconds = aggregateWindowText.toIntOrNull() ?: state.rateLimitConfig.aggregateWindowSeconds,
+            aggregationMode = aggregationMode
+        )
+    )
+    val resolvedQuiet = resolveQuietConfig(
+        isSimpleMode = isSimpleMode,
+        preset = quietPreset,
+        startHour = quietStartHourText,
+        startMinute = quietStartMinuteText,
+        endHour = quietEndHourText,
+        endMinute = quietEndMinuteText,
+        daysText = quietDaysText,
+        original = QuietHoursConfig(
+            enabled = quietEnabled,
+            startHour = quietStartHourText.toIntOrNull() ?: state.quietHoursConfig.startHour,
+            startMinute = quietStartMinuteText.toIntOrNull() ?: state.quietHoursConfig.startMinute,
+            endHour = quietEndHourText.toIntOrNull() ?: state.quietHoursConfig.endHour,
+            endMinute = quietEndMinuteText.toIntOrNull() ?: state.quietHoursConfig.endMinute,
+            daysOfWeek = parseIntCsv(quietDaysText).toSet()
+        )
+    )
 
     Scaffold(
         topBar = {
@@ -137,6 +192,34 @@ fun RulesScreen(
                     actionIconContentColor = MaterialTheme.colorScheme.onPrimary
                 )
             )
+        },
+        bottomBar = {
+            SectionCard(
+                title = null,
+                subtitle = null,
+                emphasized = true,
+                modifier = Modifier.padding(horizontal = UiTokens.screenPadding, vertical = 8.dp)
+            ) {
+                PrimaryAction(
+                    label = "ルール設定を保存",
+                    onClick = {
+                        // モードに応じて決定済み設定を確定し、保存は1回でまとめて反映する
+                        onSaveRuleConfig(
+                            EmbedConfig(
+                                enabled = embedEnabled,
+                                includePackageField = includePackageField,
+                                includeTimeField = includeTimeField,
+                                maxFieldLength = maxFieldLengthText.toIntOrNull() ?: state.embedConfig.maxFieldLength
+                            ),
+                            resolvedFilter,
+                            resolvedDedupe,
+                            resolvedRateLimit,
+                            resolvedQuiet
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
         }
     ) { padding ->
         Column(
@@ -144,176 +227,166 @@ fun RulesScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(UiTokens.screenPadding),
+            verticalArrangement = Arrangement.spacedBy(UiTokens.sectionSpacing)
         ) {
-            Text(
-                text = "使い方に合わせて設定モードを切り替えできます。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
-                Button(
-                    onClick = {
-                        isSimpleMode = true
-                        onSetRulesSimpleMode(true)
-                    },
-                    modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
-                    colors = if (isSimpleMode) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
-                ) {
-                    Text("初心者モード")
-                }
-                Button(
-                    onClick = {
-                        isSimpleMode = false
-                        onSetRulesSimpleMode(false)
-                    },
-                    modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
-                    colors = if (!isSimpleMode) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
-                ) {
-                    Text("詳細モード")
+            InfoBanner(text = "使い方に合わせて設定モードを切り替えできます。")
+            SectionCard(title = "表示モード", subtitle = "初心者向けと詳細設定を切り替えます。", emphasized = true) {
+                AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
+                    Button(
+                        onClick = {
+                            isSimpleMode = true
+                            onSetRulesSimpleMode(true)
+                        },
+                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
+                        colors = if (isSimpleMode) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
+                    ) {
+                        Text("初心者モード")
+                    }
+                    Button(
+                        onClick = {
+                            isSimpleMode = false
+                            onSetRulesSimpleMode(false)
+                        },
+                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
+                        colors = if (!isSimpleMode) ButtonDefaults.buttonColors() else ButtonDefaults.outlinedButtonColors()
+                    ) {
+                        Text("詳細モード")
+                    }
                 }
             }
 
-            Divider()
+            SectionCard(title = "テンプレート", subtitle = "通知本文のフォーマットを決めます。") {
+                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    items(placeholders) { (label, token) ->
+                        AssistChip(
+                            onClick = {
+                                templateText = insertToken(templateText, token)
+                            },
+                            label = { Text(label) }
+                        )
+                    }
+                }
+                OutlinedTextField(
+                    value = templateText,
+                    onValueChange = { templateText = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("通知テンプレート") },
+                    minLines = 4
+                )
+                if (!containsAnyPlaceholder(templateText)) {
+                    Text(
+                        text = "ヒント: アプリ名や本文を入れるには上のチップをタップしてください。",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error
+                    )
+                }
+                Text(
+                    text = "プレビュー",
+                    style = MaterialTheme.typography.labelLarge
+                )
+                OutlinedTextField(
+                    value = previewText,
+                    onValueChange = {},
+                    modifier = Modifier.fillMaxWidth(),
+                    readOnly = true,
+                    minLines = 4,
+                    label = { Text("送信イメージ") }
+                )
+                PrimaryAction(
+                    label = "テンプレート保存",
+                    onClick = { onSaveDefaultTemplate(templateText) },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            }
 
-            SectionTitle(title = "テンプレート")
-            Text(
-                text = "通知本文を自由に決められます。改行はそのまま入力してください。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(placeholders) { (label, token) ->
-                    AssistChip(
-                        onClick = {
-                            templateText = insertToken(templateText, token)
-                        },
-                        label = { Text(label) }
+            SectionCard(title = "Embed表示", subtitle = "Discord表示の見やすさを調整します。") {
+                SwitchRow("Embedを有効", embedEnabled) { embedEnabled = it }
+                if (!isSimpleMode) {
+                    SwitchRow("パッケージ欄を表示", includePackageField) { includePackageField = it }
+                    SwitchRow("時刻欄を表示", includeTimeField) { includeTimeField = it }
+                    OutlinedTextField(
+                        value = maxFieldLengthText,
+                        onValueChange = { maxFieldLengthText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("本文フィールド最大文字数") }
                     )
                 }
             }
-            OutlinedTextField(
-                value = templateText,
-                onValueChange = { templateText = it },
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("通知テンプレート") },
-                minLines = 4
-            )
-            if (!containsAnyPlaceholder(templateText)) {
-                Text(
-                    text = "ヒント: アプリ名や本文を入れるには上のチップをタップしてください。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error
-                )
-            }
-            Text(
-                text = "プレビュー",
-                style = MaterialTheme.typography.labelLarge
-            )
-            OutlinedTextField(
-                value = previewText,
-                onValueChange = {},
-                modifier = Modifier.fillMaxWidth(),
-                readOnly = true,
-                minLines = 4,
-                label = { Text("送信イメージ") }
-            )
-            Button(onClick = { onSaveDefaultTemplate(templateText) }) {
-                Text("テンプレート保存")
-            }
 
-            Divider()
-
-            SectionTitle(title = "Embed表示")
-            SwitchRow("Embedを有効", embedEnabled) { embedEnabled = it }
-            if (!isSimpleMode) {
-                SwitchRow("パッケージ欄を表示", includePackageField) { includePackageField = it }
-                SwitchRow("時刻欄を表示", includeTimeField) { includeTimeField = it }
-                OutlinedTextField(
-                    value = maxFieldLengthText,
-                    onValueChange = { maxFieldLengthText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("本文フィールド最大文字数") }
-                )
-            }
-
-            Divider()
-
-            SectionTitle(title = "フィルタ")
-            if (isSimpleMode) {
-                PresetSelector(
-                    options = listOf("すべて転送", "重要通知のみ", "キーワード一致"),
-                    selectedIndex = simpleFilterPreset.ordinal,
-                    onSelect = {
-                        simpleFilterPreset = SimpleFilterPreset.values()[it]
+            SectionCard(title = "フィルタ", subtitle = "送信対象をキーワードや重要度で絞り込みます。") {
+                if (isSimpleMode) {
+                    PresetSelector(
+                        options = listOf("すべて転送", "重要通知のみ", "キーワード一致"),
+                        selectedIndex = simpleFilterPreset.ordinal,
+                        onSelect = {
+                            simpleFilterPreset = SimpleFilterPreset.values()[it]
+                        }
+                    )
+                    if (simpleFilterPreset == SimpleFilterPreset.KEYWORD) {
+                        OutlinedTextField(
+                            value = filterKeywordsText,
+                            onValueChange = { filterKeywordsText = it },
+                            modifier = Modifier.fillMaxWidth(),
+                            label = { Text("キーワード (例: 銀行, 認証, 重要)") }
+                        )
                     }
-                )
-                if (simpleFilterPreset == SimpleFilterPreset.KEYWORD) {
+                } else {
+                    SwitchRow("高度フィルタを有効", filterEnabled) { filterEnabled = it }
                     OutlinedTextField(
                         value = filterKeywordsText,
                         onValueChange = { filterKeywordsText = it },
                         modifier = Modifier.fillMaxWidth(),
-                        label = { Text("キーワード (例: 銀行, 認証, 重要)") }
+                        label = { Text("キーワード (カンマ区切り)") }
                     )
+                    SwitchRow("正規表現を有効", filterUseRegex) { filterUseRegex = it }
+                    OutlinedTextField(
+                        value = filterRegexPattern,
+                        onValueChange = { filterRegexPattern = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("正規表現パターン") }
+                    )
+                    OutlinedTextField(
+                        value = filterChannelIdsText,
+                        onValueChange = { filterChannelIdsText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("通知チャンネルID (カンマ区切り)") }
+                    )
+                    OutlinedTextField(
+                        value = filterMinImportanceText,
+                        onValueChange = { filterMinImportanceText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("最小重要度") }
+                    )
+                    SwitchRow("サマリー通知を除外", excludeSummary) { excludeSummary = it }
                 }
-            } else {
-                SwitchRow("高度フィルタを有効", filterEnabled) { filterEnabled = it }
-                OutlinedTextField(
-                    value = filterKeywordsText,
-                    onValueChange = { filterKeywordsText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("キーワード (カンマ区切り)") }
-                )
-                SwitchRow("正規表現を有効", filterUseRegex) { filterUseRegex = it }
-                OutlinedTextField(
-                    value = filterRegexPattern,
-                    onValueChange = { filterRegexPattern = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("正規表現パターン") }
-                )
-                OutlinedTextField(
-                    value = filterChannelIdsText,
-                    onValueChange = { filterChannelIdsText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("通知チャンネルID (カンマ区切り)") }
-                )
-                OutlinedTextField(
-                    value = filterMinImportanceText,
-                    onValueChange = { filterMinImportanceText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text("最小重要度") }
-                )
-                SwitchRow("サマリー通知を除外", excludeSummary) { excludeSummary = it }
             }
 
-            Divider()
-
-            SectionTitle(title = "重複抑制 / 集約")
-            Text(
-                text = stringResource(id = R.string.aggregation_mode_label),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-            PresetSelector(
-                options = listOf(
-                    stringResource(id = R.string.aggregation_mode_normal),
-                    stringResource(id = R.string.aggregation_mode_wake_delay_only),
-                    stringResource(id = R.string.aggregation_mode_always_separate)
-                ),
-                selectedIndex = when (aggregationMode) {
-                    AggregationMode.NORMAL -> 0
-                    AggregationMode.WAKE_DELAY_ONLY -> 1
-                    AggregationMode.ALWAYS_SEPARATE -> 2
-                },
-                onSelect = {
-                    aggregationMode = when (it) {
-                        1 -> AggregationMode.WAKE_DELAY_ONLY
-                        2 -> AggregationMode.ALWAYS_SEPARATE
-                        else -> AggregationMode.NORMAL
+            SectionCard(title = "重複抑制 / 集約", subtitle = "同一通知の連投抑制と集約方針です。") {
+                Text(
+                    text = stringResource(id = R.string.aggregation_mode_label),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                PresetSelector(
+                    options = listOf(
+                        stringResource(id = R.string.aggregation_mode_normal),
+                        stringResource(id = R.string.aggregation_mode_wake_delay_only),
+                        stringResource(id = R.string.aggregation_mode_always_separate)
+                    ),
+                    selectedIndex = when (aggregationMode) {
+                        AggregationMode.NORMAL -> 0
+                        AggregationMode.WAKE_DELAY_ONLY -> 1
+                        AggregationMode.ALWAYS_SEPARATE -> 2
+                    },
+                    onSelect = {
+                        aggregationMode = when (it) {
+                            1 -> AggregationMode.WAKE_DELAY_ONLY
+                            2 -> AggregationMode.ALWAYS_SEPARATE
+                            else -> AggregationMode.NORMAL
+                        }
                     }
-                }
-            )
+                )
             if (isSimpleMode) {
                 PresetSelector(
                     options = listOf("弱", "標準", "強"),
@@ -352,10 +425,9 @@ fun RulesScreen(
                     label = { Text("連投集約ウィンドウ秒") }
                 )
             }
+            }
 
-            Divider()
-
-            SectionTitle(title = "時間帯")
+            SectionCard(title = "時間帯", subtitle = "就寝時などに通知を一時保留できます。") {
             if (isSimpleMode) {
                 PresetSelector(
                     options = listOf("OFF", "夜間(22:00-07:00)", "カスタム"),
@@ -395,134 +467,65 @@ fun RulesScreen(
                     label = { Text("曜日 (1=日 ... 7=土, 空欄で毎日)") }
                 )
             }
+            }
 
-            Divider()
-
-            SectionTitle(title = "ルーティング")
-            Text(
-                text = "一致したルールのWebhookすべてへ送信します。",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            SectionCard(title = "ルーティング", subtitle = "一致したルールのWebhookへ通知を振り分けます。") {
             if (isSimpleMode) {
                 Text(
                     text = "登録済み: ${routingRules.size} ルール（詳細モードで編集）",
                     style = MaterialTheme.typography.bodySmall
                 )
             } else {
-                routingRules.forEach { rule ->
-                    RoutingRuleEditor(
-                        rule = rule,
-                        onChange = { updated ->
-                            val index = routingRules.indexOfFirst { it.id == updated.id }
-                            if (index >= 0) {
-                                routingRules[index] = updated
+                TextButton(onClick = { routingExpanded = !routingExpanded }) {
+                    Text(if (routingExpanded) "編集を閉じる" else "ルールを編集")
+                }
+                if (routingExpanded) {
+                    routingRules.forEach { rule ->
+                        RoutingRuleEditor(
+                            rule = rule,
+                            onChange = { updated ->
+                                val index = routingRules.indexOfFirst { it.id == updated.id }
+                                if (index >= 0) {
+                                    routingRules[index] = updated
+                                }
+                            },
+                            onDelete = {
+                                routingRules.removeAll { it.id == rule.id }
                             }
+                        )
+                    }
+                } else {
+                    Text(
+                        text = "登録済み: ${routingRules.size} ルール",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
+                    SecondaryAction(
+                        label = "ルールを追加",
+                        onClick = {
+                            routingRules += RoutingRule(
+                                id = UUID.randomUUID().toString(),
+                                name = "新しいルール",
+                                enabled = true
+                            )
+                            routingExpanded = true
                         },
-                        onDelete = {
-                            routingRules.removeAll { it.id == rule.id }
-                        }
+                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier
                     )
-                }
-
-                TextButton(onClick = {
-                    routingRules += RoutingRule(
-                        id = UUID.randomUUID().toString(),
-                        name = "新しいルール",
-                        enabled = true
+                    PrimaryAction(
+                        label = "ルーティング保存",
+                        onClick = { onSaveRoutingRules(routingRules.toList()) },
+                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier
                     )
-                }) {
-                    Text("ルールを追加")
-                }
-                Button(onClick = { onSaveRoutingRules(routingRules.toList()) }) {
-                    Text("ルーティング保存")
                 }
             }
-
-            val resolvedFilter = resolveFilterConfig(
-                isSimpleMode = isSimpleMode,
-                preset = simpleFilterPreset,
-                keywordsText = filterKeywordsText,
-                original = FilterConfig(
-                    enabled = filterEnabled,
-                    keywords = parseCsv(filterKeywordsText),
-                    useRegex = filterUseRegex,
-                    regexPattern = filterRegexPattern,
-                    channelIds = parseCsv(filterChannelIdsText).toSet(),
-                    minImportance = filterMinImportanceText.toIntOrNull() ?: Int.MIN_VALUE,
-                    excludeSummary = excludeSummary
-                )
-            )
-            val resolvedDedupe = resolveDedupeConfig(
-                isSimpleMode = isSimpleMode,
-                preset = dedupePreset,
-                original = DedupeConfig(
-                    enabled = dedupeEnabled,
-                    contentHashEnabled = contentHashEnabled,
-                    titleLatestOnly = titleLatestOnly,
-                    windowSeconds = dedupeWindowText.toIntOrNull() ?: state.dedupeConfig.windowSeconds
-                )
-            )
-            val resolvedRateLimit = resolveRateLimitConfig(
-                isSimpleMode = isSimpleMode,
-                preset = dedupePreset,
-                aggregationMode = aggregationMode,
-                original = RateLimitConfig(
-                    enabled = rateEnabled,
-                    maxPerWindow = rateMaxText.toIntOrNull() ?: state.rateLimitConfig.maxPerWindow,
-                    windowSeconds = rateWindowText.toIntOrNull() ?: state.rateLimitConfig.windowSeconds,
-                    aggregateWindowSeconds = aggregateWindowText.toIntOrNull() ?: state.rateLimitConfig.aggregateWindowSeconds,
-                    aggregationMode = aggregationMode
-                )
-            )
-            val resolvedQuiet = resolveQuietConfig(
-                isSimpleMode = isSimpleMode,
-                preset = quietPreset,
-                startHour = quietStartHourText,
-                startMinute = quietStartMinuteText,
-                endHour = quietEndHourText,
-                endMinute = quietEndMinuteText,
-                daysText = quietDaysText,
-                original = QuietHoursConfig(
-                    enabled = quietEnabled,
-                    startHour = quietStartHourText.toIntOrNull() ?: state.quietHoursConfig.startHour,
-                    startMinute = quietStartMinuteText.toIntOrNull() ?: state.quietHoursConfig.startMinute,
-                    endHour = quietEndHourText.toIntOrNull() ?: state.quietHoursConfig.endHour,
-                    endMinute = quietEndMinuteText.toIntOrNull() ?: state.quietHoursConfig.endMinute,
-                    daysOfWeek = parseIntCsv(quietDaysText).toSet()
-                )
-            )
-
-            Button(
-                onClick = {
-                    // モードに応じて決定済み設定を確定し、保存は1回でまとめて反映する
-                    onSaveRuleConfig(
-                        EmbedConfig(
-                            enabled = embedEnabled,
-                            includePackageField = includePackageField,
-                            includeTimeField = includeTimeField,
-                            maxFieldLength = maxFieldLengthText.toIntOrNull() ?: state.embedConfig.maxFieldLength
-                        ),
-                        resolvedFilter,
-                        resolvedDedupe,
-                        resolvedRateLimit,
-                        resolvedQuiet
-                    )
-                },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text("ルール設定を保存")
             }
+
         }
     }
-}
-
-@Composable
-private fun SectionTitle(title: String) {
-    Text(
-        text = title,
-        style = MaterialTheme.typography.titleMedium
-    )
 }
 
 @Composable

@@ -9,6 +9,7 @@ import android.os.Bundle
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Base64
+import android.util.Log
 import androidx.core.graphics.drawable.toBitmap
 import com.notify2discord.app.data.LineThreadProfile
 import com.notify2discord.app.data.NotificationRecord
@@ -27,6 +28,7 @@ class NotifyNotificationListenerService : NotificationListenerService() {
     private lateinit var pipeline: NotificationDispatchPipeline
     private val serviceScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val linePackageName = "jp.naver.line.android"
+    private val logTag = "NotifyListener"
 
     override fun onCreate() {
         super.onCreate()
@@ -53,56 +55,70 @@ class NotifyNotificationListenerService : NotificationListenerService() {
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val notification = sbn.notification
         serviceScope.launch {
-            val settings = repository.getSettingsSnapshot()
-            val appName = resolveAppName(sbn.packageName)
-            val parsed = parseNotificationMeta(
-                packageName = sbn.packageName,
-                notification = notification
-            )
-
-            val payload = NotificationPayload(
-                packageName = sbn.packageName,
-                appName = appName,
-                title = parsed.title,
-                text = parsed.text,
-                postTime = sbn.postTime,
-                channelId = sbn.notification.channelId.orEmpty(),
-                importance = sbn.notification.priority,
-                isSummary = (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
-            )
-
-            // selectedPackages が空なら全アプリが転送対象
-            val isForwardingTarget = settings.selectedPackages.isEmpty() ||
-                sbn.packageName in settings.selectedPackages
-
-            var acceptedForForwarding = false
-            if (settings.forwardingEnabled && isForwardingTarget) {
-                acceptedForForwarding = pipeline.process(
-                    settings = settings,
-                    payload = payload,
-                    sourceNotification = notification
+            runCatching {
+                val settings = repository.getSettingsSnapshot()
+                val appName = resolveAppName(sbn.packageName)
+                val parsed = parseNotificationMeta(
+                    packageName = sbn.packageName,
+                    notification = notification
                 )
+                val normalizedTitle = parsed.title.trim()
+                val normalizedText = parsed.text.trim()
+                val bothBlank = normalizedTitle.isBlank() && normalizedText.isBlank()
+                val hasAttachment = NotificationAttachmentExtractor.hasExtractableAttachment(notification)
+                if (bothBlank && !hasAttachment) return@runCatching
+                val safeTitle = when {
+                    normalizedTitle.isNotBlank() -> normalizedTitle
+                    bothBlank && hasAttachment -> "添付通知"
+                    else -> normalizedTitle
+                }
+
+                val payload = NotificationPayload(
+                    packageName = sbn.packageName,
+                    appName = appName,
+                    title = safeTitle,
+                    text = normalizedText,
+                    postTime = sbn.postTime,
+                    channelId = sbn.notification.channelId.orEmpty(),
+                    importance = sbn.notification.priority,
+                    isSummary = (sbn.notification.flags and Notification.FLAG_GROUP_SUMMARY) != 0
+                )
+
+                // selectedPackages が空なら全アプリが転送対象
+                val isForwardingTarget = settings.selectedPackages.isEmpty() ||
+                    sbn.packageName in settings.selectedPackages
+
+                var acceptedForForwarding = false
+                if (settings.forwardingEnabled && isForwardingTarget) {
+                    acceptedForForwarding = pipeline.process(
+                        settings = settings,
+                        payload = payload,
+                        sourceNotification = notification
+                    )
+                }
+
+                val shouldStoreAsUnsentTarget = settings.captureHistoryWhenForwardingOff &&
+                    sbn.packageName in settings.historyCapturePackages &&
+                    (!settings.forwardingEnabled || !isForwardingTarget)
+                val shouldStoreHistory = acceptedForForwarding || shouldStoreAsUnsentTarget
+                if (!shouldStoreHistory) return@runCatching
+
+                val record = NotificationRecord(
+                    id = System.nanoTime(),
+                    packageName = sbn.packageName,
+                    appName = appName,
+                    title = safeTitle,
+                    text = normalizedText,
+                    postTime = sbn.postTime,
+                    historyGroupKey = parsed.historyGroupKey,
+                    conversationName = parsed.conversationName,
+                    senderName = parsed.senderName
+                )
+                repository.saveNotificationRecord(record)
+                parsed.lineThreadProfile?.let { repository.upsertLineThreadProfile(it) }
+            }.onFailure { error ->
+                Log.w(logTag, "通知処理に失敗しました: ${sbn.packageName}", error)
             }
-
-            val shouldStoreAsUnsentTarget = settings.captureHistoryWhenForwardingOff &&
-                sbn.packageName in settings.historyCapturePackages &&
-                (!settings.forwardingEnabled || !isForwardingTarget)
-            val shouldStoreHistory = acceptedForForwarding || shouldStoreAsUnsentTarget
-            if (!shouldStoreHistory) return@launch
-
-            val record = NotificationRecord(
-                id = System.nanoTime(),
-                packageName = sbn.packageName,
-                appName = appName,
-                title = parsed.title,
-                text = parsed.text,
-                postTime = sbn.postTime,
-                historyGroupKey = parsed.historyGroupKey,
-                conversationName = parsed.conversationName,
-                senderName = parsed.senderName
-            )
-            repository.saveNotificationRecord(record)
-            parsed.lineThreadProfile?.let { repository.upsertLineThreadProfile(it) }
         }
     }
 

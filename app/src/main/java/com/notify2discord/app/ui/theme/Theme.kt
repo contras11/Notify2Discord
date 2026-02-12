@@ -10,8 +10,8 @@ import com.notify2discord.app.data.ThemeMode
 
 private val DarkColorScheme = darkColorScheme(
     primary = Color(0xFF90CAF9),
-    secondary = Color(0xFFCE93D8),
-    tertiary = Color(0xFFA5D6A7),
+    secondary = Color(0xFF64B5F6),
+    tertiary = Color(0xFF4FC3F7),
     background = Color(0xFF121212),
     surface = Color(0xFF1E1E1E),
     onPrimary = Color(0xFF003258),
@@ -23,8 +23,8 @@ private val DarkColorScheme = darkColorScheme(
 
 private val LightColorScheme = lightColorScheme(
     primary = Color(0xFF1976D2),
-    secondary = Color(0xFF9C27B0),
-    tertiary = Color(0xFF388E3C)
+    secondary = Color(0xFF42A5F5),
+    tertiary = Color(0xFF0288D1)
 )
 
 @Composable

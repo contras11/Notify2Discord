@@ -19,8 +19,6 @@ import androidx.compose.material.icons.filled.OpenInNew
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.Card
-import androidx.compose.material3.Divider
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -28,7 +26,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -161,261 +158,211 @@ fun SettingsScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
+                .padding(UiTokens.screenPadding),
+            verticalArrangement = Arrangement.spacedBy(UiTokens.sectionSpacing)
         ) {
-            Text(
-                text = stringResource(id = R.string.notification_access_help),
-                style = MaterialTheme.typography.bodyMedium
-            )
-            Button(
-                onClick = onOpenNotificationAccess,
-                modifier = Modifier.fillMaxWidth()
+            InfoBanner(text = stringResource(id = R.string.notification_access_help))
+
+            SectionCard(
+                title = "接続",
+                subtitle = "通知権限とDiscord送信先を設定します。",
+                emphasized = true
             ) {
-                Text(text = stringResource(id = R.string.open_notification_access))
-            }
-
-            Button(
-                onClick = onRequestIgnoreBatteryOptimizations,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(text = "バッテリー最適化を無効にする")
-            }
-
-            Divider()
-
-            if (!isEditing && state.webhookUrl.isNotBlank()) {
-                Text(text = stringResource(id = R.string.webhook_saved_section))
-                Text(
-                    text = maskWebhookUrl(state.webhookUrl),
-                    style = MaterialTheme.typography.bodySmall
+                PrimaryAction(
+                    label = stringResource(id = R.string.open_notification_access),
+                    onClick = onOpenNotificationAccess,
+                    modifier = Modifier.fillMaxWidth()
                 )
-                AdaptiveActionGroup(maxItemsInRow = 3) { compact ->
-                    Button(onClick = {
-                        clipboardManager.setText(AnnotatedString(state.webhookUrl))
-                        scope.launch {
-                            snackbarHostState.showSnackbar(copiedMessage)
+                SecondaryAction(
+                    label = "バッテリー最適化を無効にする",
+                    onClick = onRequestIgnoreBatteryOptimizations,
+                    modifier = Modifier.fillMaxWidth()
+                )
+
+                if (!isEditing && state.webhookUrl.isNotBlank()) {
+                    Text(text = stringResource(id = R.string.webhook_saved_section))
+                    Text(
+                        text = maskWebhookUrl(state.webhookUrl),
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                    AdaptiveActionGroup(maxItemsInRow = 3) { compact ->
+                        Button(
+                            onClick = {
+                                clipboardManager.setText(AnnotatedString(state.webhookUrl))
+                                scope.launch { snackbarHostState.showSnackbar(copiedMessage) }
+                            },
+                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                        ) {
+                            Text(text = stringResource(id = R.string.webhook_copy))
                         }
-                    }, modifier = if (compact) Modifier.fillMaxWidth() else Modifier) {
-                        Text(text = stringResource(id = R.string.webhook_copy))
+                        SecondaryAction(
+                            label = stringResource(id = R.string.webhook_clear),
+                            onClick = { requestSave("") },
+                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                        )
+                        SecondaryAction(
+                            label = stringResource(id = R.string.webhook_edit),
+                            onClick = { isEditing = true },
+                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                        )
                     }
-                    Button(
-                        onClick = { requestSave("") },
-                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier
-                    ) {
-                        Text(text = stringResource(id = R.string.webhook_clear))
+                } else {
+                    OutlinedTextField(
+                        value = webhookText,
+                        onValueChange = { webhookText = it },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text(stringResource(id = R.string.webhook_label)) },
+                        isError = webhookText.isNotBlank() && !isWebhookValid
+                    )
+                    Text(
+                        text = when {
+                            state.webhookUrl.isBlank() -> stringResource(id = R.string.webhook_status_empty)
+                            isDirty -> stringResource(id = R.string.webhook_status_unsaved)
+                            else -> stringResource(id = R.string.webhook_status_saved)
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = when {
+                            isDirty -> MaterialTheme.colorScheme.error
+                            state.webhookUrl.isBlank() -> MaterialTheme.colorScheme.onSurfaceVariant
+                            else -> MaterialTheme.colorScheme.primary
+                        }
+                    )
+                    if (webhookText.isBlank()) {
+                        Text(
+                            text = stringResource(id = R.string.webhook_empty_help),
+                            style = MaterialTheme.typography.bodySmall
+                        )
+                    } else if (!isWebhookValid) {
+                        Text(
+                            text = stringResource(id = R.string.webhook_invalid_help),
+                            style = MaterialTheme.typography.bodySmall
+                        )
                     }
-                    Button(
-                        onClick = { isEditing = true },
-                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier
-                    ) {
-                        Text(text = stringResource(id = R.string.webhook_edit))
+                    AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
+                        PrimaryAction(
+                            label = stringResource(id = R.string.webhook_save),
+                            onClick = { requestSave(webhookText) },
+                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                        )
+                        if (isDirty && state.webhookUrl.isNotBlank()) {
+                            SecondaryAction(
+                                label = stringResource(id = R.string.webhook_revert),
+                                onClick = { webhookText = state.webhookUrl },
+                                modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                            )
+                        }
                     }
                 }
-                Button(
+
+                PrimaryAction(
+                    label = stringResource(id = R.string.test_send),
                     onClick = onTestSend,
                     modifier = Modifier.fillMaxWidth()
-                ) {
-                    Text(text = stringResource(id = R.string.test_send))
-                }
+                )
                 if (state.webhookUrl.isNotBlank()) {
                     TextButton(onClick = { onRecheckWebhook(state.webhookUrl) }) {
                         Text("Webhookを再検証")
                     }
                 }
-            } else {
-                OutlinedTextField(
-                    value = webhookText,
-                    onValueChange = { webhookText = it },
-                    modifier = Modifier.fillMaxWidth(),
-                    label = { Text(stringResource(id = R.string.webhook_label)) },
-                    isError = webhookText.isNotBlank() && !isWebhookValid
-                )
-
-                Text(
-                    text = when {
-                        state.webhookUrl.isBlank() -> stringResource(id = R.string.webhook_status_empty)
-                        isDirty -> stringResource(id = R.string.webhook_status_unsaved)
-                        else -> stringResource(id = R.string.webhook_status_saved)
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = when {
-                        isDirty -> MaterialTheme.colorScheme.error
-                        state.webhookUrl.isBlank() -> MaterialTheme.colorScheme.onSurfaceVariant
-                        else -> MaterialTheme.colorScheme.primary
-                    }
-                )
-                if (isDirty && state.webhookUrl.isNotBlank()) {
-                    TextButton(onClick = { webhookText = state.webhookUrl }) {
-                        Text(text = stringResource(id = R.string.webhook_revert))
-                    }
-                }
-
-                if (webhookText.isBlank()) {
+                if (webhookHealth != null) {
+                    val checkedTime = formatEpochMillis(webhookHealth.checkedAt, dateTimeFormatter)
+                    val successTime = formatEpochMillis(webhookHealth.lastDeliverySuccessAt, dateTimeFormatter)
                     Text(
-                        text = stringResource(id = R.string.webhook_empty_help),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                } else if (!isWebhookValid) {
-                    Text(
-                        text = stringResource(id = R.string.webhook_invalid_help),
-                        style = MaterialTheme.typography.bodySmall
-                    )
-                }
-
-                AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
-                    Button(
-                        onClick = { requestSave(webhookText) },
-                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier
-                    ) {
-                        Text(text = stringResource(id = R.string.webhook_save))
-                    }
-                    if (state.webhookUrl.isNotBlank()) {
-                        TextButton(
-                            onClick = { isEditing = false },
-                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier
-                        ) {
-                            Text(text = "キャンセル")
-                        }
-                    }
-                }
-            }
-
-            if (webhookHealth != null) {
-                val checkedTime = formatEpochMillis(webhookHealth.checkedAt, dateTimeFormatter)
-                val successTime = formatEpochMillis(webhookHealth.lastDeliverySuccessAt, dateTimeFormatter)
-                Text(
-                    text = "Webhook状態: ${webhookHealth.effectiveState.label()} / 検証: ${webhookHealth.level.label()} (${webhookHealth.statusCode ?: "-"})",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = webhookHealth.effectiveState.color()
-                )
-                if (checkedTime != null) {
-                    Text(
-                        text = "最終検証: $checkedTime",
+                        text = "Webhook状態: ${webhookHealth.effectiveState.label()} / 検証: ${webhookHealth.level.label()} (${webhookHealth.statusCode ?: "-"})",
                         style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                        color = webhookHealth.effectiveState.color()
                     )
-                }
-                val hasDetails = webhookHealth.message.isNotBlank() ||
-                    webhookHealth.deliveryMessage.isNotBlank() ||
-                    successTime != null
-                if (hasDetails) {
-                    TextButton(onClick = { showWebhookHealthDetails = !showWebhookHealthDetails }) {
-                        Text(if (showWebhookHealthDetails) "詳細を隠す" else "詳細を表示")
-                    }
-                }
-                if (showWebhookHealthDetails) {
-                    if (webhookHealth.message.isNotBlank()) {
+                    if (checkedTime != null) {
                         Text(
-                            text = "検証詳細: ${webhookHealth.message}",
-                            style = MaterialTheme.typography.bodySmall
+                            text = "最終検証: $checkedTime",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                     }
-                    if (webhookHealth.deliveryMessage.isNotBlank()) {
-                        Text(
-                            text = "送信詳細: ${webhookHealth.deliveryMessage}",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                    if (successTime != null) {
-                        Text(
-                            text = "最終送信成功: $successTime",
-                            style = MaterialTheme.typography.bodySmall
-                        )
-                    }
-                }
-            }
-
-            Divider()
-
-            Card(
-                colors = AppCardColors.normal()
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "設定バックアップ",
-                        style = MaterialTheme.typography.titleMedium
-                    )
-                    Text(
-                        text = "手動で設定を保存・復元できます。",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                    AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
-                        Button(
-                            onClick = {
-                                createBackupLauncher.launch(generateBackupFileName())
-                            },
-                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier
-                        ) {
-                            Text("エクスポート")
-                        }
-                        Button(
-                            onClick = {
-                                importBackupLauncher.launch(arrayOf("application/json", "text/plain"))
-                            },
-                            modifier = if (compact) Modifier.fillMaxWidth() else Modifier,
-                            colors = ButtonDefaults.outlinedButtonColors()
-                        ) {
-                            Text("インポート")
+                    val hasDetails = webhookHealth.message.isNotBlank() ||
+                        webhookHealth.deliveryMessage.isNotBlank() ||
+                        successTime != null
+                    if (hasDetails) {
+                        TextButton(onClick = { showWebhookHealthDetails = !showWebhookHealthDetails }) {
+                            Text(if (showWebhookHealthDetails) "詳細を隠す" else "詳細を表示")
                         }
                     }
-                    val latestBackupMillis = state.lastBackupAt ?: state.lastManualBackupAt
-                    if (latestBackupMillis != null) {
-                        formatEpochMillis(latestBackupMillis, dateTimeFormatter)?.let { timeText ->
+                    if (showWebhookHealthDetails) {
+                        if (webhookHealth.message.isNotBlank()) {
                             Text(
-                                text = "最終バックアップ: $timeText",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                                text = "検証詳細: ${webhookHealth.message}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        if (webhookHealth.deliveryMessage.isNotBlank()) {
+                            Text(
+                                text = "送信詳細: ${webhookHealth.deliveryMessage}",
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
+                        if (successTime != null) {
+                            Text(
+                                text = "最終送信成功: $successTime",
+                                style = MaterialTheme.typography.bodySmall
                             )
                         }
                     }
                 }
             }
 
-            Divider()
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
+            SectionCard(
+                title = "バックアップ",
+                subtitle = "手動で設定を保存・復元できます。"
             ) {
-                Text(text = stringResource(id = R.string.forwarding_toggle))
-                Switch(
+                AdaptiveActionGroup(maxItemsInRow = 2) { compact ->
+                    PrimaryAction(
+                        label = "エクスポート",
+                        onClick = { createBackupLauncher.launch(generateBackupFileName()) },
+                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                    )
+                    SecondaryAction(
+                        label = "インポート",
+                        onClick = { importBackupLauncher.launch(arrayOf("application/json", "text/plain")) },
+                        modifier = if (compact) Modifier.fillMaxWidth() else Modifier
+                    )
+                }
+                val latestBackupMillis = state.lastBackupAt ?: state.lastManualBackupAt
+                if (latestBackupMillis != null) {
+                    formatEpochMillis(latestBackupMillis, dateTimeFormatter)?.let { timeText ->
+                        Text(
+                            text = "最終バックアップ: $timeText",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            SectionCard(
+                title = "通知制御",
+                subtitle = "転送と履歴保存の挙動を管理します。"
+            ) {
+                SettingSwitchRow(
+                    label = stringResource(id = R.string.forwarding_toggle),
                     checked = state.forwardingEnabled,
                     onCheckedChange = onToggleForwarding
                 )
-            }
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(text = stringResource(id = R.string.capture_unsent_history_toggle))
-                Switch(
+                SettingSwitchRow(
+                    label = stringResource(id = R.string.capture_unsent_history_toggle),
                     checked = state.captureHistoryWhenForwardingOff,
                     onCheckedChange = onToggleCaptureHistoryWhenForwardingOff
                 )
-            }
-            Text(
-                text = stringResource(id = R.string.capture_unsent_history_hint),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
-
-            Divider()
-
-            Column {
                 Text(
-                    text = "テーマ設定",
-                    style = MaterialTheme.typography.titleMedium
+                    text = stringResource(id = R.string.capture_unsent_history_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
+            }
+
+            SectionCard(
+                title = "表示",
+                subtitle = "アプリの見た目を切り替えます。"
+            ) {
                 AdaptiveActionGroup(maxItemsInRow = 3) { compact ->
                     ThemeMode.values().forEach { mode ->
                         val isSelected = state.themeMode == mode
@@ -441,19 +388,10 @@ fun SettingsScreen(
                 }
             }
 
-            Divider()
-
-            Column {
-                Text(
-                    text = "履歴の保持期間",
-                    style = MaterialTheme.typography.titleMedium
-                )
-                Text(
-                    text = "設定した日数より古い履歴は自動で削除されます。「無制限」の場合は削除しません。",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                Spacer(modifier = Modifier.padding(top = 8.dp))
+            SectionCard(
+                title = "履歴管理",
+                subtitle = "保存期間を調整し、古い履歴を手動削除できます。"
+            ) {
                 val retentionOptions = listOf(
                     7 to "1週間",
                     14 to "2週間",
@@ -477,57 +415,48 @@ fun SettingsScreen(
                         }
                     }
                 }
-                Spacer(modifier = Modifier.padding(top = 8.dp))
-                Button(
+                SecondaryAction(
+                    label = "古い履歴を今すぐ削除",
                     onClick = onCleanupExpired,
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = ButtonDefaults.outlinedButtonColors()
-                ) {
-                    Text("古い履歴を今すぐ削除")
-                }
-            }
-
-            Divider()
-
-            Text(
-                text = "リンク",
-                style = MaterialTheme.typography.titleMedium
-            )
-            val links = listOf(
-                "GitHubリポジトリ" to "https://github.com/contras11/Notify2Discord",
-                "個人開発ポータル" to "https://remudo.com/",
-                "X (Twitter)" to "https://x.com/remudo_"
-            )
-            links.forEach { (label, url) ->
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
-                        .padding(vertical = 12.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Text(text = label, style = MaterialTheme.typography.bodyMedium)
-                    Icon(
-                        Icons.Default.OpenInNew,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-                Divider(
-                    color = MaterialTheme.colorScheme.outlineVariant,
-                    thickness = 0.5.dp
+                    modifier = Modifier.fillMaxWidth()
                 )
             }
 
-            Spacer(modifier = Modifier.padding(top = 16.dp))
-            Text(
-                text = "バージョン ${BuildConfig.VERSION_NAME}",
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.fillMaxWidth(),
-                textAlign = TextAlign.Center
-            )
+            SectionCard(
+                title = "リンク / バージョン",
+                subtitle = "開発情報とサポートリンクです。"
+            ) {
+                val links = listOf(
+                    "GitHubリポジトリ" to "https://github.com/contras11/Notify2Discord",
+                    "個人開発ポータル" to "https://remudo.com/",
+                    "X (Twitter)" to "https://x.com/remudo_"
+                )
+                links.forEach { (label, url) ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url))) }
+                            .padding(vertical = 8.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(text = label, style = MaterialTheme.typography.bodyMedium)
+                        Icon(
+                            Icons.Default.OpenInNew,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+                Spacer(modifier = Modifier.padding(top = 8.dp))
+                Text(
+                    text = "バージョン ${BuildConfig.VERSION_NAME}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.fillMaxWidth(),
+                    textAlign = TextAlign.Center
+                )
+            }
         }
     }
 

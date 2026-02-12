@@ -408,17 +408,19 @@ private fun AppListScreen(
                 leadingIcon = { Icon(Icons.Default.Search, null) },
                 singleLine = true
             )
+            Text(
+                text = "期間: ${rangeFilter.label()} / 並び順: ${sortOrder.label()}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+            )
 
             if (summaries.isEmpty()) {
                 Box(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "履歴がありません",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    EmptyState(title = "履歴がありません")
                 }
             } else {
                 LazyColumn(
@@ -612,11 +614,7 @@ private fun LineConversationListScreen(
                     .padding(padding),
                 contentAlignment = Alignment.Center
             ) {
-                Text(
-                    text = "会話履歴がありません",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+                EmptyState(title = "会話履歴がありません")
             }
         } else {
             LazyColumn(
@@ -866,11 +864,7 @@ private fun AppDetailScreen(
                     modifier = Modifier.fillMaxSize(),
                     contentAlignment = Alignment.Center
                 ) {
-                    Text(
-                        text = "履歴がありません",
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
+                    EmptyState(title = "履歴がありません")
                 }
             } else {
                 LazyColumn(

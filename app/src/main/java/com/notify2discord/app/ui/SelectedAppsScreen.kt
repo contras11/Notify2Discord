@@ -162,37 +162,31 @@ fun SelectedAppsScreen(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .padding(horizontal = UiTokens.screenPadding)
         ) {
             // 説明セクションは一覧スクロール時に自動で隠す
             AnimatedVisibility(visible = !hideGuideCard) {
-                Card(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(16.dp),
-                    colors = AppCardColors.emphasized()
+                SectionCard(
+                    emphasized = true,
+                    modifier = Modifier.padding(top = 12.dp)
                 ) {
-                    Column(
-                        modifier = Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        Text(
+                            text = "転送対象と個別Webhookを管理できます。",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f)
+                        )
+                        TextButton(
+                            onClick = { showUsageDialog = true }
                         ) {
-                            Text(
-                                text = "転送対象と個別Webhookを管理できます。",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                                modifier = Modifier.weight(1f)
-                            )
-                            TextButton(
-                                onClick = { showUsageDialog = true }
-                            ) {
-                                Text("使い方など")
-                            }
+                            Text("使い方など")
                         }
                     }
                 }
@@ -204,7 +198,7 @@ fun SelectedAppsScreen(
                 onValueChange = { searchQuery = it },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(16.dp),
+                    .padding(vertical = 12.dp),
                 label = { Text("アプリを検索") },
                 leadingIcon = { Icon(Icons.Default.Search, null) },
                 singleLine = true
@@ -213,7 +207,7 @@ fun SelectedAppsScreen(
                 text = "転送中 ${state.selectedPackages.size} 件 / 履歴 ${state.historyCapturePackages.size} 件 / 個別Webhook $appsWithCustomWebhook 件",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 16.dp)
+                modifier = Modifier.padding(horizontal = 4.dp)
             )
             val hiddenForwardingCount = apps.count {
                 !isVisibleBySystemFilter(it, systemFilterMode) &&
@@ -224,11 +218,9 @@ fun SelectedAppsScreen(
                     state.historyCapturePackages.contains(it.packageName)
             }
             if (hiddenForwardingCount > 0 || hiddenHistoryCount > 0) {
-                Text(
+                InfoBanner(
                     text = "現在の表示外: 転送 $hiddenForwardingCount 件 / 履歴 $hiddenHistoryCount 件",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp)
+                    modifier = Modifier.padding(top = 6.dp)
                 )
             }
 
@@ -270,6 +262,14 @@ fun SelectedAppsScreen(
                 contentPadding = PaddingValues(vertical = 8.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp)
             ) {
+                if (sortedApps.isEmpty()) {
+                    item {
+                        EmptyState(
+                            title = "表示できるアプリがありません",
+                            hint = "検索条件や表示フィルターを見直してください。"
+                        )
+                    }
+                }
                 items(sortedApps, key = { it.packageName }) { app ->
                     val selected = state.selectedPackages.contains(app.packageName)
                     val historyCapture = state.historyCapturePackages.contains(app.packageName)
@@ -350,7 +350,7 @@ private fun AppListItem(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 4.dp),
+            .padding(horizontal = UiTokens.screenPadding, vertical = 4.dp),
         colors = if (hasCustomWebhook) AppCardColors.emphasized() else AppCardColors.normal()
     ) {
         Row(

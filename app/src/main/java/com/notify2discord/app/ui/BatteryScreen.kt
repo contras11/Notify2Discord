@@ -129,9 +129,13 @@ fun BatteryScreen(
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState())
                 .padding(padding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+                .padding(UiTokens.screenPadding),
+            verticalArrangement = Arrangement.spacedBy(UiTokens.sectionSpacing)
         ) {
+            InfoBanner(text = "表示値は端末仕様に依存します。更新アイコンで最新情報を取得できます。")
+            if (currentSnapshot == null) {
+                InfoBanner(text = "バッテリー情報を読み込み中です。")
+            }
             BatteryInfoCard(
                 title = "基本情報",
                 items = listOf(
@@ -160,20 +164,13 @@ fun BatteryScreen(
                 items = chargeCycleItems
             )
 
-            Card(colors = AppCardColors.emphasized()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(10.dp)
-                ) {
+            SectionCard(
+                title = "劣化推定グラフ",
+                subtitle = stringResource(id = R.string.battery_graph_range_help),
+                emphasized = true
+            ) {
                     Text(
-                        text = "劣化推定グラフ",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = stringResource(id = R.string.battery_graph_range_help),
+                        text = "表示期間",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -211,21 +208,12 @@ fun BatteryScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
             }
 
-            Card(colors = AppCardColors.normal()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = "劣化履歴の収集（1時間ごと）",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
+            SectionCard(
+                title = "劣化履歴の収集（1時間ごと）",
+                subtitle = "履歴収集のON/OFFと保持期間を管理します。"
+            ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -247,21 +235,13 @@ fun BatteryScreen(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                }
             }
 
-            Card(colors = AppCardColors.emphasized()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    Text(
-                        text = stringResource(id = R.string.battery_report_section_title),
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
+            SectionCard(
+                title = stringResource(id = R.string.battery_report_section_title),
+                subtitle = stringResource(id = R.string.battery_report_help),
+                emphasized = true
+            ) {
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
@@ -371,23 +351,14 @@ fun BatteryScreen(
                     ) {
                         Text(stringResource(id = R.string.battery_report_save))
                     }
-                }
             }
 
-            Card(colors = AppCardColors.normal()) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(14.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
+            SectionCard(
+                title = "公称容量 (mAh)",
+                subtitle = "手入力すると劣化率計算で最優先されます。"
+            ) {
                     Text(
-                        text = "公称容量 (mAh)",
-                        style = MaterialTheme.typography.titleMedium,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                    Text(
-                        text = "手入力すると、劣化率の計算で最優先で使用します。空欄なら端末値を使います。",
+                        text = "空欄なら端末値を使います。",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -418,7 +389,6 @@ fun BatteryScreen(
                     ) {
                         Text("公称容量を保存")
                     }
-                }
             }
         }
     }
@@ -433,7 +403,7 @@ private fun BatteryInfoCard(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(14.dp),
+                .padding(UiTokens.cardPadding),
             verticalArrangement = Arrangement.spacedBy(8.dp)
         ) {
             Text(
